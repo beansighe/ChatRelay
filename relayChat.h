@@ -1,4 +1,6 @@
-#include stdin
+#include <stdio.h>
+#include < sys/types.h>
+#include <socket.h>
 
 //OPCODES
 #define IRC_OPCODE_ERR				= 0x10000001
@@ -87,7 +89,7 @@ struct irc_packet_send_msg {
 	struct irc_packet_header header = 
 		{.opcode = IRC_OPCODE_SEND_MSG, .length = LENGTH};
 	char target_name[20];
-	char msg[LENGTH - 20];
+	char msg[];//LENGTH - 20];
 };
 
 // SERVER MESSAGES
@@ -95,16 +97,16 @@ struct irc_packet_send_msg {
 // Room List Response
 struct irc_packet_list_resp {
 	struct irc_packet_header header = 
-		{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
+		{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};//or .opcode = IRC_OPCODE_LIST_USERS_RESP
 	char identifier[20];
-	char item_names[LENGTH/20 - 1][20];
+	char item_names[];//LENGTH/20 - 1][20]
 };
 
 // User Message Forwarding
 struct irc_packet_tell_msg {
 	struct irc_packet_header header =
-		{.opcode = IRC_OPCODE_TELL_MSG, .length = LENGTH};
+		{.opcode = IRC_OPCODE_TELL_MSG, .length = LENGTH};// or .opcode = IRC_OPCODE_TELL_PRIV_MSG
 	char target_name[20];
 	char sending_user[20];
-	char msg[LENGTH - 40];
+	char msg[];//LENGTH - 40]
 };
