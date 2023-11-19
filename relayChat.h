@@ -1,7 +1,15 @@
+#pragma once
+
+#ifndef RELAYCHAT_H
+#define RELAYCHAT_H
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
+#include <pthread.h>
+#include <sys/socket.h>//commented out because I still haven't managed to convince VSCode to us the linux versions of things.
 
 //OPCODES
 #define IRC_OPCODE_ERR				= 0x10000001
@@ -42,7 +50,7 @@ struct irc_packet_header {
 //for the other packets defined below
 struct irc_packet_generic {
 	struct irc_packet_header header;
-	uint8_t content[header.length];
+	uint8_t content[]//header.length];
 };
 
 // Heartbeat Messages
@@ -92,7 +100,7 @@ struct irc_packet_send_msg {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_SEND_MSG, .length = LENGTH};
 	char target_name[20];
-	char msg[LENGTH - 20];
+	char msg[]//LENGTH - 20];
 };
 
 // SERVER MESSAGES
@@ -102,7 +110,7 @@ struct irc_packet_list_resp {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
 	char identifier[20];
-	char item_names[(LENGTH/20) - 1][20];
+	char item_names[]//(LENGTH/20) - 1][20];
 };
 
 // User Message Forwarding
@@ -111,5 +119,8 @@ struct irc_packet_tell_msg {
 		//{.opcode = IRC_OPCODE_TELL_MSG, .length = LENGTH};
 	char target_name[20];
 	char sending_user[20];
-	char msg[LENGTH - 40];
+	char msg[]//LENGTH - 40];
 };
+
+
+#endif
