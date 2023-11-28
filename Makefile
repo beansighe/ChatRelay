@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -0g
+CFLAGS=-Wall -Og
 DFLAGS=-g
 OBJS=relayChatClient.o relayChatServer.o
 PROGS=relayChatClient relayChatServer
