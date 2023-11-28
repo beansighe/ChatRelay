@@ -1,36 +1,53 @@
+#pragma once
+
+#ifndef RELAYCHAT_H
+#define RELAYCHAT_H
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
+#include <pthread.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 
 //OPCODES
-#define IRC_OPCODE_ERR				= 0x10000001
-#define IRC_OPCODE_HEARTBEAT		= 0x10000002
-#define IRC_OPCODE_HELLO			= 0x10000003
-#define IRC_OPCODE_LIST_ROOMS		= 0x10000004
-#define IRC_OPCODE_LIST_ROOMS_RESP	= 0x10000005	
-#define IRC_OPCODE_LIST_USERS_RESP	= 0x10000006
-#define IRC_OPCODE_JOIN_ROOM		= 0x10000007
-#define IRC_OPCODE_LEAVE_ROOM		= 0x10000008
-#define IRC_OPCODE_SEND_MSG			= 0x10000009
-#define IRC_OPCODE_TELL_MSG			= 0x1000000A
-#define IRC_OPCODE_SEND_PRIV_MSG	= 0x1000000B
-#define IRC_OPCODE_TELL_PRIV_MSG	= 0x1000000C
-#define IRC_OPCODE_KEY_EXCHANGE		= 0x1000000D
+#define IRC_OPCODE_ERR				0x10000001
+#define IRC_OPCODE_HEARTBEAT		0x10000002
+#define IRC_OPCODE_HELLO			0x10000003
+#define IRC_OPCODE_LIST_ROOMS		0x10000004
+#define IRC_OPCODE_LIST_ROOMS_RESP	0x10000005	
+#define IRC_OPCODE_LIST_USERS_RESP	0x10000006
+#define IRC_OPCODE_JOIN_ROOM		0x10000007
+#define IRC_OPCODE_LEAVE_ROOM		0x10000008
+#define IRC_OPCODE_SEND_MSG			0x10000009
+#define IRC_OPCODE_TELL_MSG			0x1000000A
+#define IRC_OPCODE_SEND_PRIV_MSG	0x1000000B
+#define IRC_OPCODE_TELL_PRIV_MSG	0x1000000C
+#define IRC_OPCODE_KEY_EXCHANGE		0x1000000D
 
 
 //ERROR CODES
-#define IRC_ERR_UNKNOWN			= 0x20000001
-#define IRC_ERR_ILLEGAL_OPCODE	= 0x20000002
-#define IRC_ERR_ILLEGAL_LENGTH	= 0x20000003
-#define IRC_ERR_NAME_EXISTS		= 0x20000004
-#define IRC_ERR_ILLEGAL_NAME	= 0x20000005
-#define IRC_ERR_ILLEGAL_MESSAGE	= 0x20000006
-#define IRC_ERR_TOO_MANY_USERS	= 0x20000007
-#define IRC_ERR_TOO_MANY_ROOMS	= 0x20000008
-#define IRC_ERR_WRONG_VERSION	= 0x20000009
-#define IRC_ERR_NO_HEARTBEAT	= 0x2000000A
+#define IRC_ERR_UNKNOWN			0x20000001
+#define IRC_ERR_ILLEGAL_OPCODE	0x20000002
+#define IRC_ERR_ILLEGAL_LENGTH	0x20000003
+#define IRC_ERR_NAME_EXISTS		0x20000004
+#define IRC_ERR_ILLEGAL_NAME	0x20000005
+#define IRC_ERR_ILLEGAL_MESSAGE	0x20000006
+#define IRC_ERR_TOO_MANY_USERS	0x20000007
+#define IRC_ERR_TOO_MANY_ROOMS	0x20000008
+#define IRC_ERR_WRONG_VERSION	0x20000009
+#define IRC_ERR_NO_HEARTBEAT	0x2000000A
 
+#define MAXMSGLENGTH 8000
+//The longest allowed text length
+
+#define MAXUSERS 10
+//The max number of users allowed per room
 
 //Generic Messages
 struct irc_packet_header {
@@ -42,7 +59,7 @@ struct irc_packet_header {
 //for the other packets defined below
 struct irc_packet_generic {
 	struct irc_packet_header header;
-	uint8_t content[header.length];
+	uint8_t content[];//header.length];
 };
 
 // Heartbeat Messages
@@ -92,7 +109,7 @@ struct irc_packet_send_msg {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_SEND_MSG, .length = LENGTH};
 	char target_name[20];
-	char msg[LENGTH - 20];
+	char msg[];//LENGTH - 20];
 };
 
 // SERVER MESSAGES
@@ -102,7 +119,7 @@ struct irc_packet_list_resp {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
 	char identifier[20];
-	char item_names[(LENGTH/20) - 1][20];
+	char item_names[][20];//(LENGTH/20) - 1][20];
 };
 
 // User Message Forwarding
@@ -111,5 +128,11 @@ struct irc_packet_tell_msg {
 		//{.opcode = IRC_OPCODE_TELL_MSG, .length = LENGTH};
 	char target_name[20];
 	char sending_user[20];
-	char msg[LENGTH - 40];
+	char msg[];//LENGTH - 40];
 };
+
+int validate_string(char * text, int length);
+
+
+
+#endif
