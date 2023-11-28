@@ -44,6 +44,10 @@
 #define IRC_ERR_NO_HEARTBEAT	0x2000000A
 
 #define MAXMSGLENGTH 8000
+//The longest allowed text length
+
+#define MAXUSERS 10
+//The max number of users allowed per room
 
 //Generic Messages
 struct irc_packet_header {
@@ -115,7 +119,7 @@ struct irc_packet_list_resp {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
 	char identifier[20];
-	char item_names[];//(LENGTH/20) - 1][20];
+	char item_names[][20];//(LENGTH/20) - 1][20];
 };
 
 // User Message Forwarding

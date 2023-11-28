@@ -54,3 +54,5 @@ relayChatClient
 .vscode/settings.json
 .vscode/c_cpp_properties.json
 relayChatServer
+client
+server
