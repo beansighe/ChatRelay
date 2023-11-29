@@ -13,7 +13,7 @@ typedef struct room
     char members[MAXUSERS][20];
     int count;
     struct room * next;
-}room;
+}room_t;
 
 void keepalive();
 void receiver();
@@ -24,11 +24,15 @@ void updateRoomMembership(struct irc_packet_list_resp * input);
 pthread_mutex_t timestamp_mutex;
 time_t lastSent;
 time_t lastRecvd;
-pthread_mutex_t conMTX;
-int connected = 1;
 char username[20] = "";
 int sock = 0;
-room * roomHead = NULL;
+int timeout = 0;
+void * buf = NULL;//the buffer used by the receiver to hold incoming packets
+char * inputBuf = NULL;//the buffer used by the sender to hold user input
+
+
+room_t * roomHead = NULL;
+pthread_t sendThrd, recvThrd, kaThrd;
 
 
 void keepalive()
@@ -40,11 +44,13 @@ void keepalive()
         pthread_mutex_lock(&timestamp_mutex);
         if(now - lastRecvd >= 15)
         {//server is not sending heartbeats, assume connection lost
+        //kill sender and receiver threads, set timeout flag and return to main.
+            pthread_cancel(sendThrd);
+            pthread_cancel(recvThrd);
+            timeout = 1;
+            return;
             //Attempt to reconnect?
-            pthread_mutex_lock(&conMTX);
 
-
-            pthread_mutex_unlock(&conMTX);
         }
         if(now - lastSent >= 3)
         {//Outgoing heartbeat is stale
@@ -58,13 +64,17 @@ void keepalive()
 
 void receiver()
 {
-    void * buf = malloc(sizeof(struct irc_packet_tell_msg) + MAXMSGLENGTH * sizeof(char));
-    pthread_mutex_lock(&conMTX);
-    while(connected);
+    size_t capacity = sizeof(struct irc_packet_tell_msg) + MAXMSGLENGTH * sizeof(char);
+    if(!buf)
     {
-        pthread_mutex_unlock(&conMTX);
+        buf = malloc(capacity);
+    }
+    
+    size_t size = 0;
+    while(1);
+    {
 
-        //recv(sock, );
+        size = recv(sock, buf, capacity, 0);
         
         pthread_mutex_lock(&timestamp_mutex);
         lastRecvd = time(NULL);
@@ -74,13 +84,18 @@ void receiver()
         {
         case IRC_OPCODE_ERR:
             //disconnect from server and terminate
+            pthread_cancel(sendThrd);
+            pthread_cancel(kaThrd);
+            print("Recieved inalid data, disconnecting from server...\n");
+            timeout = 0;
+            return;
             break;
         case IRC_OPCODE_HEARTBEAT:
             //no work necessary, timestamp already updated
             break;
         case IRC_OPCODE_LIST_ROOMS_RESP:
             struct irc_packet_list_resp * roomlist = (struct irc_packet_list_resp *)input;
-
+            
             break;
         case IRC_OPCODE_LIST_USERS_RESP:
             updateRoomMembership((struct irc_packet_list_resp *)input);
@@ -116,6 +131,8 @@ void receiver()
             //invalid opcode
             struct irc_packet_error output;
             output.error_code = IRC_ERR_ILLEGAL_OPCODE;
+            output.header.opcode = IRC_OPCODE_ERR;
+            output.header.length = 4;
             send(sock, &output, sizeof(struct irc_packet_error), 0);
             //disconnect from server and terminate
 
@@ -123,13 +140,117 @@ void receiver()
         }
 
 
-        pthread_mutex_lock(&conMTX);
     }
 }
 
 void sender()
 {
+    if(!inputBuf)
+    {
+        inputBuf = malloc(MAXINPUTLENGTH * sizeof(char));
+    }
+    
+    while (1)
+    {
+        //read a line from the user
+        memset(inputBuf, '\0',  MAXINPUTLENGTH * sizeof(char));//Clear out the input buffer so it can satisfy the string expectations
+        fgets(inputBuf, MAXINPUTLENGTH - 1, stdin);
+        //parse the line to identify a command
+        if(inputBuf[0] == '\\')
+        {
+            switch (inputBuf[1])
+            {
+            case 'r'://send message to only one room
+                //usage \r roomname msgbody
+            case 'u'://send message to only one user
+                //usage \u username msgbody
+                strtok(inputBuf, " ");
+                char * rname = strtok(NULL, " ");
+                char * msgbody = strtok(NULL, " ");
+                int msglength = strlen(msgbody) + 1;
+                if(msglength <= 1)
+                {
+                    if(inputBuf[1] == 'r')
+                    {
+                        print("usage \\r username msgbody\n");
+                    }
+                    else
+                    {
+                        print("usage \\u username msgbody\n");
+                    }
+                }
+                else
+                {
+                    struct irc_packet_send_msg  * roommsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
+                    if(inputBuf[1] == 'r')
+                    {
+                        roommsg->header.opcode = IRC_OPCODE_SEND_MSG;
+                    }
+                    else
+                    {
+                        roommsg->header.opcode = IRC_OPCODE_SEND_PRIV_MSG;
 
+                    }
+                    roommsg->header.length = 20 + msglength;
+                    memset(roommsg->target_name, '\0', 20);
+                    memset(roommsg->msg, '\0', msglength);
+                    strncpy(roommsg->target_name, rname, msgbody - rname - 1);
+                    send(sock, roommsg, sizeof(struct irc_packet_send_msg) + msglength, 0);
+                    free(roommsg);
+                }
+                break;
+            case 'j'://join (or create) a room
+                //usage \j roomname
+                if(strlen(inputBuf) <= 3)
+                {
+                    print("usage \\j roomname\n");
+                }
+                else
+                {
+                    //prepare message to send
+                    struct irc_packet_join joinmsg;
+                    joinmsg.header.opcode = IRC_OPCODE_JOIN_ROOM;
+                    joinmsg.header.length = 20;
+                    memset(joinmsg.room_name, '\0', 20);
+                    strncpy(joinmsg.room_name, inputBuf + 3, 20);
+
+                    //first check we are not already in the room
+
+                    //add room name to list of rooms
+
+                    //now let the server know we want to join the room
+                    send(sock, &joinmsg, sizeof(struct irc_packet_join), 0);
+
+                }
+                break;
+            case 'l'://list rooms
+                //usage \l
+                struct irc_packet_list_rooms outgoing;
+                outgoing.header.opcode = IRC_OPCODE_LIST_ROOMS;
+                outgoing.header.length = 0;
+                send(sock, &outgoing, sizeof(struct irc_packet_list_rooms), 0);
+                break;
+            case 'e'://exit a room
+                //usage \e roomname
+                break;
+            case 'q'://quit the server
+                //usage \q
+                break;
+            default:
+                //unrecognized command
+                break;
+            }
+        }
+        else
+        {//forward message to all joined rooms
+
+        }
+
+        //construct a packet struct according to the command and send it
+
+
+    }
+    
 }
 
 void updateRoomMembership(struct irc_packet_list_resp * input)
@@ -201,10 +322,36 @@ int main(int argc, char *argv[]) {
 
     //init behavior
     //Get username from user
+
     //get server IP from user
     //open socket and connect to server
 
     //spin off children (keepalive, receiver, sender)
+    pthread_create(&kaThrd, NULL, keepalive, NULL);
+    pthread_create(&sendThrd, NULL, sender, NULL);
+    pthread_create(&recvThrd, NULL, receiver, NULL);
+
+    do
+    {
+        if(timeout)
+        {
+            //server disconnected due to timeout
+            fprint(stdout, "The server is unresponsive. Do you want to attempt to reconnect? (y/n)\n");
+            
+        }
+        pthread_join(kaThrd, NULL);
+        pthread_join(sendThrd, NULL);
+        pthread_join(recvThrd, NULL);
+    } while (timeout);
+    if(inputBuf)
+    {
+        free(inputBuf);
+    }
+    if(buf)
+    {
+        free(buf);
+    }
+    
 
 
 
@@ -219,6 +366,15 @@ int main(int argc, char *argv[]) {
 
     fprintf(stdout, "%lu\n", sizeof(char));
     printf("%.7s\n", "0123456789");
+
+    int count = 5;
+
+    while(count >= 0)
+    {  
+        printf("%s\n", "snore");
+        sleep(10);
+        --count;
+    }
 
     exit(0);
 }
