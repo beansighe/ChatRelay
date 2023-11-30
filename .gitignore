@@ -1,3 +1,4 @@
+
 # Prerequisites
 *.d
 
@@ -15,9 +16,6 @@
 *.map
 *.exp
 
-# Precompiled Headers
-*.gch
-*.pch
 
 # Libraries
 *.lib
@@ -39,6 +37,19 @@
 *.x86_64
 *.hex
 
+
+# Precompiled Headers
+*.gch
+*.pch
+
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+
 # Debug files
 *.dSYM/
 *.su
@@ -53,3 +64,9 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+relayChatClient
+.vscode/settings.json
+.vscode/c_cpp_properties.json
+relayChatServer
+client
+server

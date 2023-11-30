@@ -1,3 +1,11 @@
+
+
+#pragma once
+
+#ifndef RELAYCHAT_H
+#define RELAYCHAT_H
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -5,6 +13,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
+
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -15,6 +25,14 @@
 #include <signal.h>
 #include <time.h>
 #include <pthread.h>
+
+
+#define MAXMSGLENGTH 8000
+#define MAXINPUTLENGTH 2000
+//The longest allowed text length, and the longest input the client will read (arguably could stand to be the same)
+
+#define MAXUSERS 20
+//The max number of users allowed per room
 
 
 // values
@@ -58,27 +76,27 @@
 typedef struct irc_packet_header {
 	uint32_t opcode;
 	uint32_t length;
-};
+}irc_packet_header_t;
 
 //do we actually need this data type? it seems like it's just a pattern
 //for the other packets defined below
 typedef struct irc_packet_generic {
 	struct irc_packet_header header;
 	uint8_t content[];
-};
+}irc_packet_generic_t;
 
 // Heartbeat Messages
 typedef struct irc_packet_heartbeat {
 	struct irc_packet_header header;// = 
 	//	{.opcode = IRC_OPCODE_HEARTBEAT, .length = 0};
-};
+}irc_packet_heartbeat_t;
 
 //Error Messages
 typedef struct irc_packet_error {
 	struct irc_packet_header header; //=
 		//{.opcode = IRC_OPCODE_ERR, .length = 4};
 	uint32_t error_code;
-};
+}irc_packet_error_t;
 
 
 // CLIENT MESSAGES
@@ -89,25 +107,25 @@ typedef struct irc_packet_hello {
 		//{.opcode = IRC_OPCODE_HELLO, .length = 24};
 	uint32_t version;
 	char username[20];
-};
+}irc_packet_error_t;
 
 //Room Messages
 typedef struct irc_packet_list_rooms {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS, .length = 0};
-};
+}irc_packet_list_rooms_t;
 
 typedef struct irc_packet_join {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_JOIN_ROOM, .length = 20};
 	char room_name[20];
-};
+}irc_packet_join_t;
 
 typedef struct irc_packet_leave {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LEAVE_ROOM, .length = 20};
 	char room_name[20];
-};
+}irc_packet_leave_t;
 
 // User Messages
 typedef struct irc_packet_send_msg {
@@ -115,7 +133,7 @@ typedef struct irc_packet_send_msg {
 		//{.opcode = IRC_OPCODE_SEND_MSG, .length = LENGTH};
 	char target_name[20];
 	char msg[];//[LENGTH - 20];
-};
+}irc_packet_send_msg_t;
 
 // SERVER MESSAGES
 
@@ -125,7 +143,7 @@ typedef struct irc_packet_list_resp {
 		//{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
 	char identifier[20];
 	char item_names[];//[(LENGTH/20) - 1][20];
-};
+}irc_packet_list_resp_t;
 
 // User Message Forwarding
 typedef struct irc_packet_tell_msg {
@@ -134,10 +152,12 @@ typedef struct irc_packet_tell_msg {
 	char target_name[20];
 	char sending_user[20];
 	char msg[];//[LENGTH - 40];
-};
+}irc_packet_tell_msg_t;
 
 
 //shared functions
+
+int validate_string(char * text, int length);
 
 // store ip of socket connection ??????
 // source: beej.us/guide/bgnet
@@ -190,3 +210,12 @@ int find_sock_struct(struct addrinfo *server_info, struct addrinfo *valid_sock) 
 void disconnect();
 
 */
+
+
+
+
+
+
+
+#endif
+
