@@ -1,11 +1,15 @@
 /* * * *
 * "relayChatServer.c"
 * RelayChat by Micah Lorenz and Tierney McBride
+* sources used in designing socket management: 
+* <beej.us/guide/bgnet>,
+* <https://www.ibm.com/docs/en/i/7.1?topic=designs-using-poll-instead-select>
 * * * * */
 
 #include "relayChat.h" 
 
 #define BACKLOG 10
+#define POLL_MINS 5
 
 
 void *manage_client(void *data);
@@ -15,6 +19,8 @@ int main(void) {
 
 
 	int ret, listen_fd, connect_fd; //catch on ret, listen on listen, new connect on connect
+    int check; //for error checks
+    int yes = 1; // for use in setsockopt()
     struct addrinfo *server_info, *valid_sock;
 	struct addrinfo pre_info;
     struct sockaddr_storage connecter_addr;
@@ -22,9 +28,22 @@ int main(void) {
     char s[INET6_ADDRSTRLEN];
    // struct sigaction sig_action;
 
+
+    //indicators
+   int disconnect = FALSE;
+   int close_connection;
+
    //thread stuff
    pthread_t thread;
    int thread_ret = 1;
+
+   //poll stuff
+   struct pollfd fds_poll[MAX_USERS];
+   int fds_ct = 1, current_ct = 0, i, j;
+   int timeout = POLL_MINS * 60 * 1000; // mins to millisecs
+
+   // incoming data mgmt
+   char buffer[BUFSIZ];
 
 
 
@@ -47,8 +66,22 @@ int main(void) {
 			continue;
 		}
 
-		// something about setsockopt so sockets can be reused??
+		// allow reuse of socket descriptor
+        if (check = setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+            perror("setsockopt() failed");
+            close(listen_fd);
+            exit(-1);
+        }
 
+        // make non-blocking: inherited socks will share this attribute
+        if ((check = ioctl(listen_fd, FIONBIO, &yes)) < 0) {
+            perror("ioctl() failed");
+            close(listen_fd);
+            exit(-1);
+        }
+
+    
+        // bind socket
 		if (bind(listen_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1) {
 			close(listen_fd);
 			perror("server: bind");
@@ -61,22 +94,131 @@ int main(void) {
     // free result holder 
     freeaddrinfo(server_info);
 
+    // prevent seg fault if uncaught error above
     if (valid_sock == NULL) {
         fprintf(stderr, "server: failed to bind\n");
         exit(1);
     }
 
+    // listen
     if (listen(listen_fd, BACKLOG) == -1) {
         perror("listen");
+        close(listen_fd);
         exit(1);
     }
     
-    //reap dead processes?? why would we need to do this
-
-    //listening
-
     printf("server: waiting for connections. . .\n");
+    
+    // set up for poll()
+    // initialize pollfd storage
+    memset(fds_poll, 0, sizeof(fds_poll));
 
+    //add listener
+    fds_poll[0].fd = listen_fd;
+    fds_poll[0].events = POLLIN;
+
+    do {
+        // call poll
+        printf("Polling sockets. . . \n");
+        if ((check = poll(fds_poll, fds_ct, timeout)) < 0) {
+            perror(" poll() failed");
+            break;
+        }
+
+        // check for timeout
+        if (check == 0) {
+            printf(" poll() timeout. Server shutting down. Goodbye.\n"); //why no disconnect set here?
+            break;
+        }
+
+        // Identify readable sockets
+        current_ct = fds_ct;
+        for (i = 0; i < current_ct; i++) {
+
+            //no event
+            if (fds_poll[i].revents == 0)
+                continue;
+            
+            // nonzero and not equal to POLLIN is unexpected, shut down
+            if (fds_poll[i].revents != POLLIN) {
+                printf(" Error! revents = %d; expected POLLIN\n", fds_poll[i].revents);
+                disconnect = TRUE;
+                break;
+            }
+
+            // if listener is readable, initialize new connection
+            if (fds_poll[i].fd == listen_fd) {
+
+                printf("Reading from listening socket . . . \n");
+
+                //loop to accept all valid incoming connections
+                do {
+
+                    // disconnect if error is not EWOULDBLOCK (indicates no more incoming)
+                    if ((connect_fd = accept(listen_fd, NULL, NULL)) < 0) {
+                        if (errno != EWOULDBLOCK) {
+                            perror(" accept() failed");
+                            disconnect = TRUE;
+                        }
+                        break;
+                    }
+
+                    // add new sock to pollfd at next open slot, prepare for next poll
+                    printf(" New incoming client - using fd %d\n", connect_fd);
+                    fds_poll[fds_ct].fd = connect_fd;
+                    fds_poll[fds_ct].events = POLLIN;
+                    ++fds_ct;
+                    
+                } while (connect_fd != -1);
+
+
+            
+            }
+            else {
+                printf(" fd %d is readable\n", fds_poll[i].fd);
+                close_connection = FALSE;
+
+                //read in data on this socket
+                //EWOULDBLOCK indicates end of successful rcv()
+                // other errors will close connection
+                if ((check = recv(fds_poll[i].fd, buffer, sizeof(buffer), 0)) < 0) {
+                    if (errno != EWOULDBLOCK) {
+                        perror(" recv() failed. closing connection.");
+                        close_connection = TRUE;
+                        break;
+                    }
+                }
+
+                // check for disconnect from client
+                if (check == 0) {
+                    printf(" Connection closed by client\n");
+                    close_connection = TRUE;
+                    break;
+                }
+
+                int sender_fd = fds_poll[i].fd;
+
+
+                // send data
+                for (int j = 0; j < fds_ct; j++) {
+                    int dest_fd = fds_poll[j].fd;
+
+                    // send to all but server and sender
+                    if (dest_fd != listen_fd && dest_fd != sender_fd) {
+                        if(send(dest_fd, buffer, check, 0) == -1) {
+                            perror("send");
+                        }
+                    }
+
+                }
+
+            }
+        }
+
+
+    } while (disconnect == FALSE);
+
+/*
     //accept() loop
     while(1) {
         sin_size = sizeof connecter_addr;
@@ -93,7 +235,13 @@ int main(void) {
 
         thread_ret = pthread_create(&thread, NULL, manage_client, (void*)connect_fd);
     }
+    */
 
+   //close open sockets
+   for (i = 0; i < fds_ct; ++i) {
+    if(fds_poll[i].fd >=0)
+        close(fds_poll[i].fd);
+   }
 
     exit(0);
 }

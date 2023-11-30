@@ -10,13 +10,20 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
+#include <sys/poll.h>
 #include <signal.h>
 #include <time.h>
 #include <pthread.h>
 
 
+// values
 #define PORT "6667"
 #define LENGTH 50
+#define MAX_USERS 20
+
+#define TRUE 1
+#define FALSE 0
 
 //OPCODES
 #define IRC_OPCODE_ERR				0x10000001
