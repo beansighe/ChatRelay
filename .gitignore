@@ -1,5 +1,9 @@
+
 # Prerequisites
 *.d
+
+# Vscode
+.vscode*
 
 # Object files
 *.o
@@ -12,9 +16,6 @@
 *.map
 *.exp
 
-# Precompiled Headers
-*.gch
-*.pch
 
 # Libraries
 *.lib
@@ -35,6 +36,19 @@
 *.i*86
 *.x86_64
 *.hex
+
+
+# Precompiled Headers
+*.gch
+*.pch
+
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
 
 # Debug files
 *.dSYM/

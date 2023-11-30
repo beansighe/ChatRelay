@@ -1,3 +1,4 @@
+
 CC=gcc
 CFLAGS=-Wall -Og
 DFLAGS=-g
@@ -10,4 +11,5 @@ all: $(PROGS)
 	$(CC) -c $(CFLAGS) $(DFLAGS) $< -o $@
 
 clean:
+
 	rm -f $(PROGS) *.o ~* a.out
