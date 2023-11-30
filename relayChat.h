@@ -13,6 +13,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <signal.h>
 
 
 //OPCODES
@@ -44,7 +45,8 @@
 #define IRC_ERR_NO_HEARTBEAT	0x2000000A
 
 #define MAXMSGLENGTH 8000
-//The longest allowed text length
+#define MAXINPUTLENGTH 2000
+//The longest allowed text length, and the longest input the client will read (arguably could stand to be the same)
 
 #define MAXUSERS 10
 //The max number of users allowed per room
