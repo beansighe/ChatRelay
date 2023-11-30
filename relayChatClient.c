@@ -30,7 +30,7 @@ int timeout = 0;
 void * buf = NULL;//the buffer used by the receiver to hold incoming packets
 char * inputBuf = NULL;//the buffer used by the sender to hold user input
 
-
+pthread_mutex_t rooms_mutex;
 room_t * roomHead = NULL;
 pthread_t sendThrd, recvThrd, kaThrd;
 
@@ -86,7 +86,7 @@ void receiver()
             //disconnect from server and terminate
             pthread_cancel(sendThrd);
             pthread_cancel(kaThrd);
-            print("Recieved inalid data, disconnecting from server...\n");
+            printf("Recieved inalid data, disconnecting from server...\n");
             timeout = 0;
             return;
             break;
@@ -95,7 +95,11 @@ void receiver()
             break;
         case IRC_OPCODE_LIST_ROOMS_RESP:
             struct irc_packet_list_resp * roomlist = (struct irc_packet_list_resp *)input;
-            
+            printf("The rooms currently available are: \n");
+            for(int i = 0; i < roomlist->header.length; ++i)
+            {
+                printf("\t%.20s\n", roomlist->item_names[i]);
+            }
             break;
         case IRC_OPCODE_LIST_USERS_RESP:
             updateRoomMembership((struct irc_packet_list_resp *)input);
@@ -135,7 +139,9 @@ void receiver()
             output.header.length = 4;
             send(sock, &output, sizeof(struct irc_packet_error), 0);
             //disconnect from server and terminate
-
+            pthread_cancel(kaThrd);
+            pthread_cancel(sendThrd);
+            pthread_exit();
             break;
         }
 
@@ -172,11 +178,11 @@ void sender()
                 {
                     if(inputBuf[1] == 'r')
                     {
-                        print("usage \\r username msgbody\n");
+                        printf("usage \\r username msgbody\n");
                     }
                     else
                     {
-                        print("usage \\u username msgbody\n");
+                        printf("usage \\u username msgbody\n");
                     }
                 }
                 else
@@ -203,7 +209,7 @@ void sender()
                 //usage \j roomname
                 if(strlen(inputBuf) <= 3)
                 {
-                    print("usage \\j roomname\n");
+                    printf("usage \\j roomname\n");
                 }
                 else
                 {
@@ -256,7 +262,7 @@ void sender()
 void updateRoomMembership(struct irc_packet_list_resp * input)
 {
     int inputCount = input->header.length / 20 - 1;
-    room * current = roomHead;
+    room_t * current = roomHead;
     while(current && strncmp(current->roomName, input->identifier, 20) != 0)
     {
         current = current->next;
@@ -320,6 +326,8 @@ int main(int argc, char *argv[]) {
     lastSent = time(NULL);
     memset(username, '\0', 20 * sizeof(char));
 
+    pthread_mutex_init(&timestamp_mutex, NULL);
+    pthread_mutex_init(&rooms_mutex, NULL);
     //init behavior
     //Get username from user
 
@@ -335,14 +343,33 @@ int main(int argc, char *argv[]) {
     {
         if(timeout)
         {
+
             //server disconnected due to timeout
-            fprint(stdout, "The server is unresponsive. Do you want to attempt to reconnect? (y/n)\n");
-            
+            fprintf(stdout, "The server is unresponsive. Do you want to attempt to reconnect? (y/n)\n");
+            fgets(inputBuf, 1, stdin);
+            if(inputBuf[0] == 'y')//if yes
+            {
+                close(sock);//disconnect from server
+
+                //attempt to reconnect
+
+                //Rejoin rooms
+
+                //Relaunch threads
+                pthread_create(&kaThrd, NULL, keepalive, NULL);
+                pthread_create(&sendThrd, NULL, sender, NULL);
+                pthread_create(&recvThrd, NULL, receiver, NULL);
+            }
+            else
+            {
+                continue;
+            }
         }
         pthread_join(kaThrd, NULL);
         pthread_join(sendThrd, NULL);
         pthread_join(recvThrd, NULL);
     } while (timeout);
+
     if(inputBuf)
     {
         free(inputBuf);
@@ -351,7 +378,10 @@ int main(int argc, char *argv[]) {
     {
         free(buf);
     }
+
+    //close the socket
     
+    close(sock);
 
 
 
