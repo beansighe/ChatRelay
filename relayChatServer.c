@@ -149,7 +149,7 @@ int main(void) {
             // if listener is readable, initialize new connection
             if (fds_poll[i].fd == listen_fd) {
 
-                printf("Reading from listening socket . . . \n");
+                printf("Reading from listening socket fd %d . . . \n", listen_fd);
 
                 //loop to accept all valid incoming connections
                 do {
@@ -189,12 +189,16 @@ int main(void) {
                     }
                 }
 
+
                 // check for disconnect from client
                 if (check == 0) {
                     printf(" Connection closed by client\n");
                     close_connection = TRUE;
+                    disconnect = TRUE;
                     break;
                 }
+
+                printf(buffer);
 
                 int sender_fd = fds_poll[i].fd;
 
@@ -206,7 +210,8 @@ int main(void) {
                     // send to all but server and sender
                     if (dest_fd != listen_fd && dest_fd != sender_fd) {
                         if(send(dest_fd, buffer, check, 0) == -1) {
-                            perror("send");
+                            //perror("send");
+                            fprintf(stderr, "send error, socket fd %d", dest_fd);
                         }
                     }
 

@@ -19,6 +19,14 @@ int main(int argc, char *argv[]) {
     char s[INET6_ADDRSTRLEN];
 
 
+    //polling
+    struct pollfd fds[2];
+    memset(fds, 0, sizeof(fds));
+    fds[0].fd = stdin;
+    fds[0].events = POLLIN;
+    int timeout = 5 * 60 * 1000;
+
+
     if (argc != 2) {
         fprintf(stderr, "usage: client hostname\n");
         exit(1);
@@ -35,8 +43,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     //REPLACE WITH:
+
     /*
-    if ((ret = getSocketList(argv[1], &server_info)) == -1) {
+    if ((ret = get_socket_list(argv[1], &server_info)) == -1) {
         return -1;
     }
     */
@@ -57,9 +66,9 @@ int main(int argc, char *argv[]) {
 
         break;
     }
-    //REPLACE WITH:
     /*
-    socket_fd = findAndBindSocket(&server_info, valid_sock);
+    //REPLACE WITH:
+    socket_fd = find_and_bind_socket(&server_info, valid_sock);
     */
    //error checking?
 
@@ -74,16 +83,73 @@ int main(int argc, char *argv[]) {
     printf("client: connecting to %s\n", s);
     
     freeaddrinfo(server_info); //done with this
+    /*
+    printf("data freed");
+
+    fds[1].fd = socket_fd;
+    fds[1].events = POLLIN;
+    printf("socket added to database");
 
 
-    if ((numbytes = recv(socket_fd, buf, MAXDATASIZE-1, 0)) == -1) {
-        perror("recv");
-        exit(1);
-    }
+    char *buffer;
+    int close_connection = 0;
+    printf("begin typing. . .");
 
-    buf[numbytes] = '\0';
+    do {
+        if ((ret = poll(fds, 2, timeout)) < 0) {
+            perror(" poll() failed");
+            break;
+        }
 
-    printf("client: received '%s'\n", buf);
+        if (ret == 0) {
+            printf(" poll() timeout");
+            break;
+        }
+
+        if (fds[0].revents == POLLIN) {
+            fgets(buffer, MAXDATASIZE - 1, stdin);
+            while ((getchar()) != '\n');
+            if (send(socket_fd, buffer, strlen(buffer), 0) == -1)
+                perror("send");
+        } else if (fds[1].revents == POLLIN) {
+            if ((numbytes = recv(socket_fd, buf, MAXDATASIZE-1, 0)) == -1) {
+                perror("recv");
+                close_connection = 1;
+            } else {
+                buf[numbytes] = '\0';
+                printf("recvd: %s\n", buf);
+            }
+        }
+
+    } while (close_connection == 0);
+
+*/
+    int close_connection = 0;
+    do {
+
+        getchar();
+        if (send(socket_fd, "Hello, world. I'm here.", 23, 0) == -1)
+            perror("send");
+        
+        if((numbytes = recv(socket_fd, buf, MAXDATASIZE -1, 0)) == -1) {
+            perror("recv");
+            close_connection = 1;
+        }
+
+        if (numbytes == 0) {
+            printf("Connection closed\n");
+            close_connection = 1;
+            break;
+        }
+
+        printf(buf);
+
+
+
+    } while (close_connection == 0);
+    // check for user input
+
+
 
     close(socket_fd);
 
