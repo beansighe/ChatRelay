@@ -15,7 +15,7 @@
 #include <signal.h>
 #include <time.h>
 #include <pthread.h>
-
+#include <limits.h>
 
 // values
 #define PORT "6667"
@@ -55,26 +55,24 @@
 
 
 //Generic Messages
-typedef struct irc_packet_header {
+struct irc_packet_header {
 	uint32_t opcode;
 	uint32_t length;
 };
 
-//do we actually need this data type? it seems like it's just a pattern
-//for the other packets defined below
-typedef struct irc_packet_generic {
+struct irc_packet_generic {
 	struct irc_packet_header header;
 	uint8_t content[];
 };
 
 // Heartbeat Messages
-typedef struct irc_packet_heartbeat {
+struct irc_packet_heartbeat {
 	struct irc_packet_header header;// = 
 	//	{.opcode = IRC_OPCODE_HEARTBEAT, .length = 0};
 };
 
 //Error Messages
-typedef struct irc_packet_error {
+struct irc_packet_error {
 	struct irc_packet_header header; //=
 		//{.opcode = IRC_OPCODE_ERR, .length = 4};
 	uint32_t error_code;
@@ -84,7 +82,7 @@ typedef struct irc_packet_error {
 // CLIENT MESSAGES
 
 //Hello
-typedef struct irc_packet_hello {
+struct irc_packet_hello {
 	struct irc_packet_header header;// =
 		//{.opcode = IRC_OPCODE_HELLO, .length = 24};
 	uint32_t version;
@@ -92,25 +90,25 @@ typedef struct irc_packet_hello {
 };
 
 //Room Messages
-typedef struct irc_packet_list_rooms {
+struct irc_packet_list_rooms {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS, .length = 0};
 };
 
-typedef struct irc_packet_join {
+struct irc_packet_join {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_JOIN_ROOM, .length = 20};
 	char room_name[20];
 };
 
-typedef struct irc_packet_leave {
+struct irc_packet_leave {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LEAVE_ROOM, .length = 20};
 	char room_name[20];
 };
 
 // User Messages
-typedef struct irc_packet_send_msg {
+struct irc_packet_send_msg {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_SEND_MSG, .length = LENGTH};
 	char target_name[20];
@@ -120,7 +118,7 @@ typedef struct irc_packet_send_msg {
 // SERVER MESSAGES
 
 // Room List Response
-typedef struct irc_packet_list_resp {
+struct irc_packet_list_resp {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
 	char identifier[20];
@@ -128,7 +126,7 @@ typedef struct irc_packet_list_resp {
 };
 
 // User Message Forwarding
-typedef struct irc_packet_tell_msg {
+struct irc_packet_tell_msg {
 	struct irc_packet_header header;// =
 		//{.opcode = IRC_OPCODE_TELL_MSG, .length = LENGTH};
 	char target_name[20];
@@ -136,7 +134,18 @@ typedef struct irc_packet_tell_msg {
 	char msg[];//[LENGTH - 40];
 };
 
+// STORAGE STRUCTS
+struct user {
+	int sock;
+	int index;
+	char username[20];
+	struct user *rooms[10];
+};
 
+struct room {
+	char *usernames[10];
+	struct user *room_users[10];
+};
 //shared functions
 
 // store ip of socket connection ??????
@@ -185,8 +194,3 @@ int find_sock_struct(struct addrinfo *server_info, struct addrinfo *valid_sock) 
 
 	return socket_fd;
 }
-
-/*
-void disconnect();
-
-*/

@@ -11,8 +11,15 @@
 #define BACKLOG 10
 #define POLL_MINS 5
 
+//user records
+struct user *users[MAX_USERS];
+int user_ct = 0;
 
-void *manage_client(void *data);
+//sockets to poll
+struct pollfd *fds_poll;
+int fds_ct, current_ct = 0;
+
+void process_packet(struct irc_packet_generic *incoming, int sock, int index);
 
 int main(void) {
     //create db
@@ -38,8 +45,7 @@ int main(void) {
    int thread_ret = 1;
 
    //poll stuff
-   struct pollfd fds_poll[MAX_USERS];
-   int fds_ct = 1, current_ct = 0, i, j;
+   fds_poll = malloc(sizeof *fds_poll * MAX_USERS); //could change to be variable size for storage efficiency
    int timeout = POLL_MINS * 60 * 1000; // mins to millisecs
 
    // incoming data mgmt
@@ -117,6 +123,8 @@ int main(void) {
     fds_poll[0].fd = listen_fd;
     fds_poll[0].events = POLLIN;
 
+    fds_ct = 1;
+
     do {
         // call poll
         printf("Polling sockets. . . \n");
@@ -133,7 +141,7 @@ int main(void) {
 
         // Identify readable sockets
         current_ct = fds_ct;
-        for (i = 0; i < current_ct; i++) {
+        for (int i = 0; i < current_ct; i++) {
 
             //no event
             if (fds_poll[i].revents == 0)
@@ -168,6 +176,7 @@ int main(void) {
                     fds_poll[fds_ct].fd = connect_fd;
                     fds_poll[fds_ct].events = POLLIN;
                     ++fds_ct;
+
                     
                 } while (connect_fd != -1);
 
@@ -184,27 +193,31 @@ int main(void) {
                 if ((check = recv(fds_poll[i].fd, buffer, sizeof(buffer), 0)) < 0) {
                     if (errno != EWOULDBLOCK) {
                         perror(" recv() failed. closing connection.");
+                        disconnect_client(fds_poll[i].fd, i);
                         close_connection = TRUE;
                         break;
                     }
                 }
 
+                int rcv_sock = fds_poll[i].fd;
+
 
                 // check for disconnect from client
                 if (check == 0) {
                     printf(" Connection closed by client\n");
+                    disconnect_client(rcv_sock, i);
                     close_connection = TRUE;
                     disconnect = TRUE;
                     break;
                 }
 
-                printf(buffer);
-
-                int sender_fd = fds_poll[i].fd;
+                char *to_process = malloc(check);
+                strncpy(to_process, buffer, check);
+                process_packet(to_process, rcv_sock, i);
 
 
                 // send data
-                for (int j = 0; j < fds_ct; j++) {
+                /*for (int j = 0; j < fds_ct; j++) {
                     int dest_fd = fds_poll[j].fd;
 
                     // send to all but server and sender
@@ -216,6 +229,7 @@ int main(void) {
                     }
 
                 }
+                    */
 
             }
         }
@@ -243,7 +257,7 @@ int main(void) {
     */
 
    //close open sockets
-   for (i = 0; i < fds_ct; ++i) {
+   for (int i = 0; i < fds_ct; ++i) {
     if(fds_poll[i].fd >=0)
         close(fds_poll[i].fd);
    }
@@ -253,12 +267,9 @@ int main(void) {
 
 /*
 storeNewUser(char un, uint_? ip_addr) {
-    //add un and ip_addr to user list;
-}
-
-acceptLogin(char un, uint_? ip_addr) {
-    //isThisUserOnline() ?, if not call storeNewUser()
-    //else ????
+    //check if name taken
+    //if not:
+        //add un and ip_addr to user list;
 }
 
 isThisUserOnline(un) {
@@ -307,15 +318,111 @@ void send_room_msg (struct chat_room *this, struct irc_packet_tell_msg *to_send)
         //for all users in this->members:
             // send to_send to ip_addr
     };
+
+
 */
+//REALLY WORKING ON IT NOW
+void process_packet(struct irc_packet_generic *incoming, int sock, int index) {
 
+    switch(incoming->header.opcode) {
+        case IRC_OPCODE_ERR:
+            manage_incoming_error(incoming, sock, index);
+            break;
+        case IRC_OPCODE_HEARTBEAT:
+            heartbeat(incoming, sock, index);
+            break;
+        case IRC_OPCODE_HELLO:
+            hello(incoming, sock, index);
+            break;
 
-void *manage_client(void *data) {
-    int socket_fd = (int) data;
+       /*case IRC_OPCODE_LIST_ROOMS:
+            break;
+        case IRC_OPCODE_JOIN_ROOM:
+            break;
+        case IRC_OPCODE_LEAVE_ROOM:
+            break;
+        case IRC_OPCODE_SEND_MSG:
+            break;
+            */
+        case IRC_OPCODE_SEND_PRIV_MSG:
+            private_message(incoming, sock, index);
+            break;
+        /*default:
 
-    if (send(socket_fd, "Hello, world!", 13, 0) == -1)
+            some kind of error management
+            */
+    }
+
+}
+
+void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int index) {
+    return;
+}
+
+void hello(struct irc_packet_generic *incoming, int sock, int index) {
+    struct irc_packet_hello *packet = incoming;
+    //validate username?
+    add_user(&packet->username, sock, index);
+}
+
+void add_user(char* username, int sock, int index) {
+    if (user_ct == MAX_USERS) {
+        fprintf(stderr, "server full. user could not be added.");
+        manage_error(sock, index, IRC_ERR_TOO_MANY_USERS);
+    }
+    if (is_user(username) == 1) {
+            frpintf(stderr, "name already in use.");
+            manage_error(sock, index, IRC_ERR_NAME_EXISTS);
+            return;
+    }
+    users[user_ct] = malloc(sizeof(struct user));
+    if (users[user_ct] != NULL) {
+        strncpy(users[user_ct]->username, username, strlen(username));
+        users[user_ct]->sock = sock; 
+        users[user_ct]->index = index;
+        for (int i = 0; i < 10; ++i)
+            users[user_ct]->rooms[i] = NULL;
+        ++user_ct;
+    }
+    //deal with consequences of malloc fail
+}
+
+void manage_error(int sock, int index, uint32_t error_no) {
+    struct irc_packet_error curr_error;
+    curr_error.header.opcode = IRC_OPCODE_ERR;
+    curr_error.header.length = 4;
+    curr_error.error_code = error_no;
+    if(send(sock, &curr_error, sizeof(struct irc_packet_error), 0) == -1)
         perror("send");
-    close(socket_fd);
-    pthread_detach(pthread_self());
-    pthread_exit(NULL);
+    disconnect_client(sock, index);
+}
+
+int is_user(char *username) {
+    //compare against current names
+    return 0;
+}
+
+
+void disconnect_client(int sock, int index) {
+    fds_poll[index] = fds_poll[fds_ct - 1];
+    if (users[index - 1] != NULL)
+        users[fds_ct - 2]->index = index;
+    close(sock);
+    --user_ct;
+    --fds_ct;
+}
+
+void private_message(struct irc_packet_generic *incoming, int socket, int index) {
+    struct irc_packet_send_msg *packet = incoming;
+    struct irc_packet_tell_msg outgoing;
+    int new_length = packet->header.length;
+    int len = new_length - 20;
+    strncpy(&outgoing.target_name, packet->target_name, strlen(packet->target_name));
+    strncpy(&outgoing.msg, packet->msg, len);
+    outgoing.header.opcode = IRC_OPCODE_TELL_MSG;
+    outgoing.header.length = new_length;
+    strncpy(&outgoing.sending_user, users[index -1]->username, strlen(users[index -1]->username));
+    if(send(users[index-1]->sock, &outgoing, new_length + 8, 0) == -1)
+        perror("send");
+
 }
