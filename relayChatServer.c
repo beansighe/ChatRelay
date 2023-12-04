@@ -1,170 +1,191 @@
 /* * * *
-* "relayChatServer.c"
-* RelayChat by Micah Lorenz and Tierney McBride
-* sources used in designing socket management: 
-* <beej.us/guide/bgnet>,
-* <https://www.ibm.com/docs/en/i/7.1?topic=designs-using-poll-instead-select>
-* * * * */
+ * "relayChatServer.c"
+ * RelayChat by Micah Lorenz and Tierney McBride
+ * sources used in designing socket management:
+ * <beej.us/guide/bgnet>,
+ * <https://www.ibm.com/docs/en/i/7.1?topic=designs-using-poll-instead-select>
+ * * * * */
 
-#include "relayChat.h" 
+#include "relayChat.h"
 
 #define BACKLOG 10
 #define POLL_MINS 5
 
-//user records
+// user records
 struct user *users[MAX_USERS];
 int user_ct = 0;
 
-//sockets to poll
+// sockets to poll
 struct pollfd *fds_poll;
 int fds_ct, current_ct = 0;
 
 void process_packet(struct irc_packet_generic *incoming, int sock, int index);
+void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int index);
+void hello(struct irc_packet_generic *incoming, int sock, int index);
+void add_user(char *username, int sock, int index);
+void manage_error(int sock, int index, uint32_t error_no);
+int is_user(char *username);
+void disconnect_client(int sock, int index);
+void private_message(struct irc_packet_generic *incoming, int socket, int index);
 
-int main(void) {
-    //create db
+int main(void)
+{
+    // create db
 
-
-	int ret, listen_fd, connect_fd; //catch on ret, listen on listen, new connect on connect
-    int check; //for error checks
-    int yes = 1; // for use in setsockopt()
+    int ret, listen_fd, connect_fd; // catch on ret, listen on listen, new connect on connect
+    int check;                      // for error checks
+    int yes = 1;                    // for use in setsockopt()
     struct addrinfo *server_info, *valid_sock;
-	struct addrinfo pre_info;
+    struct addrinfo pre_info;
     struct sockaddr_storage connecter_addr;
-    socklen_t sin_size; //for identifying whether incoming connection is ipv4 or ipv6 
+    socklen_t sin_size; // for identifying whether incoming connection is ipv4 or ipv6
     char s[INET6_ADDRSTRLEN];
-   // struct sigaction sig_action;
+    // struct sigaction sig_action;
 
+    // indicators
+    int disconnect = FALSE;
+    int close_connection;
 
-    //indicators
-   int disconnect = FALSE;
-   int close_connection;
+    // thread stuff
+    pthread_t thread;
+    int thread_ret = 1;
 
-   //thread stuff
-   pthread_t thread;
-   int thread_ret = 1;
+    // poll stuff
+    fds_poll = malloc(sizeof *fds_poll * MAX_USERS); // could change to be variable size for storage efficiency
+    int timeout = POLL_MINS * 60 * 1000;             // mins to millisecs
 
-   //poll stuff
-   fds_poll = malloc(sizeof *fds_poll * MAX_USERS); //could change to be variable size for storage efficiency
-   int timeout = POLL_MINS * 60 * 1000; // mins to millisecs
+    // incoming data mgmt
+    char buffer[BUFSIZ];
 
-   // incoming data mgmt
-   char buffer[BUFSIZ];
+    // find and bind socket
+    memset(&pre_info, 0, sizeof pre_info);
+    pre_info.ai_family = AF_UNSPEC;
+    pre_info.ai_socktype = SOCK_STREAM;
+    pre_info.ai_flags = AI_PASSIVE;
 
+    // error check
+    if ((ret = getaddrinfo(NULL, PORT, &pre_info, &server_info)) != 0)
+    {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
+        return 1; // how to communicate error back
+    }
 
+    for (valid_sock = server_info; valid_sock != NULL; valid_sock = valid_sock->ai_next)
+    {
+        if ((listen_fd = socket(valid_sock->ai_family, valid_sock->ai_socktype,
+                                valid_sock->ai_protocol)) == -1)
+        {
+            perror("server: socket");
+            continue;
+        }
 
-    //find and bind socket
-	memset(&pre_info, 0, sizeof pre_info);
-	pre_info.ai_family = AF_UNSPEC;
-	pre_info.ai_socktype = SOCK_STREAM;
-	pre_info.ai_flags = AI_PASSIVE;
-
-	// error check
-	if ((ret = getaddrinfo(NULL, PORT, &pre_info, &server_info)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
-		return 1;						//how to communicate error back
-	}
-
-	for (valid_sock = server_info; valid_sock != NULL; valid_sock = valid_sock->ai_next) {
-		if ((listen_fd = socket(valid_sock->ai_family, valid_sock->ai_socktype,
-				valid_sock->ai_protocol)) == -1) {
-			perror("server: socket");
-			continue;
-		}
-
-		// allow reuse of socket descriptor
-        if (check = setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+        // allow reuse of socket descriptor
+        if (check = setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0)
+        {
             perror("setsockopt() failed");
             close(listen_fd);
             exit(-1);
         }
 
         // make non-blocking: inherited socks will share this attribute
-        if ((check = ioctl(listen_fd, FIONBIO, &yes)) < 0) {
+        if ((check = ioctl(listen_fd, FIONBIO, &yes)) < 0)
+        {
             perror("ioctl() failed");
             close(listen_fd);
             exit(-1);
         }
 
-    
         // bind socket
-		if (bind(listen_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1) {
-			close(listen_fd);
-			perror("server: bind");
-			continue;
-		}
+        if (bind(listen_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1)
+        {
+            close(listen_fd);
+            perror("server: bind");
+            continue;
+        }
 
-		break;
-	}
+        break;
+    }
 
-    // free result holder 
+    // free result holder
     freeaddrinfo(server_info);
 
     // prevent seg fault if uncaught error above
-    if (valid_sock == NULL) {
+    if (valid_sock == NULL)
+    {
         fprintf(stderr, "server: failed to bind\n");
         exit(1);
     }
 
     // listen
-    if (listen(listen_fd, BACKLOG) == -1) {
+    if (listen(listen_fd, BACKLOG) == -1)
+    {
         perror("listen");
         close(listen_fd);
         exit(1);
     }
-    
+
     printf("server: waiting for connections. . .\n");
-    
+
     // set up for poll()
     // initialize pollfd storage
     memset(fds_poll, 0, sizeof(fds_poll));
 
-    //add listener
+    // add listener
     fds_poll[0].fd = listen_fd;
     fds_poll[0].events = POLLIN;
 
     fds_ct = 1;
 
-    do {
+    // do {
+    while (1)
+    {
         // call poll
         printf("Polling sockets. . . \n");
-        if ((check = poll(fds_poll, fds_ct, timeout)) < 0) {
+        if ((check = poll(fds_poll, fds_ct, timeout)) < 0)
+        {
             perror(" poll() failed");
             break;
         }
 
         // check for timeout
-        if (check == 0) {
-            printf(" poll() timeout. Server shutting down. Goodbye.\n"); //why no disconnect set here?
+        if (check == 0)
+        {
+            printf(" poll() timeout. Server shutting down. Goodbye.\n"); // why no disconnect set here?
             break;
         }
 
         // Identify readable sockets
         current_ct = fds_ct;
-        for (int i = 0; i < current_ct; i++) {
+        for (int i = 0; i < current_ct; i++)
+        {
 
-            //no event
+            // no event
             if (fds_poll[i].revents == 0)
                 continue;
-            
+
             // nonzero and not equal to POLLIN is unexpected, shut down
-            if (fds_poll[i].revents != POLLIN) {
+            if (fds_poll[i].revents != POLLIN)
+            {
                 printf(" Error! revents = %d; expected POLLIN\n", fds_poll[i].revents);
                 disconnect = TRUE;
                 break;
             }
 
             // if listener is readable, initialize new connection
-            if (fds_poll[i].fd == listen_fd) {
+            if (fds_poll[i].fd == listen_fd)
+            {
 
                 printf("Reading from listening socket fd %d . . . \n", listen_fd);
 
-                //loop to accept all valid incoming connections
-                do {
+                // loop to accept all valid incoming connections
+                do
+                {
 
                     // disconnect if error is not EWOULDBLOCK (indicates no more incoming)
-                    if ((connect_fd = accept(listen_fd, NULL, NULL)) < 0) {
-                        if (errno != EWOULDBLOCK) {
+                    if ((connect_fd = accept(listen_fd, NULL, NULL)) < 0)
+                    {
+                        if (errno != EWOULDBLOCK)
+                        {
                             perror(" accept() failed");
                             disconnect = TRUE;
                         }
@@ -177,21 +198,20 @@ int main(void) {
                     fds_poll[fds_ct].events = POLLIN;
                     ++fds_ct;
 
-                    
                 } while (connect_fd != -1);
-
-
-            
             }
-            else {
+            else
+            {
                 printf(" fd %d is readable\n", fds_poll[i].fd);
                 close_connection = FALSE;
 
-                //read in data on this socket
-                //EWOULDBLOCK indicates end of successful rcv()
-                // other errors will close connection
-                if ((check = recv(fds_poll[i].fd, buffer, sizeof(buffer), 0)) < 0) {
-                    if (errno != EWOULDBLOCK) {
+                // read in data on this socket
+                // EWOULDBLOCK indicates end of successful rcv()
+                //  other errors will close connection
+                if ((check = recv(fds_poll[i].fd, buffer, sizeof(buffer), 0)) < 0)
+                {
+                    if (errno != EWOULDBLOCK)
+                    {
                         perror(" recv() failed. closing connection.");
                         disconnect_client(fds_poll[i].fd, i);
                         close_connection = TRUE;
@@ -201,9 +221,9 @@ int main(void) {
 
                 int rcv_sock = fds_poll[i].fd;
 
-
                 // check for disconnect from client
-                if (check == 0) {
+                if (check == 0)
+                {
                     printf(" Connection closed by client\n");
                     disconnect_client(rcv_sock, i);
                     close_connection = TRUE;
@@ -214,7 +234,6 @@ int main(void) {
                 char *to_process = malloc(check);
                 strncpy(to_process, buffer, check);
                 process_packet(to_process, rcv_sock, i);
-
 
                 // send data
                 /*for (int j = 0; j < fds_ct; j++) {
@@ -230,37 +249,36 @@ int main(void) {
 
                 }
                     */
-
             }
         }
 
+    } // while (disconnect == FALSE);
 
-    } while (disconnect == FALSE);
+    /*
+        //accept() loop
+        while(1) {
+            sin_size = sizeof connecter_addr;
+            connect_fd = accept(listen_fd, (struct sockaddr *)&connecter_addr, &sin_size);
+            if (connect_fd == -1) {
+                perror("accept");
+                continue;
+            }
 
-/*
-    //accept() loop
-    while(1) {
-        sin_size = sizeof connecter_addr;
-        connect_fd = accept(listen_fd, (struct sockaddr *)&connecter_addr, &sin_size);
-        if (connect_fd == -1) {
-            perror("accept");
-            continue;
+            inet_ntop(connecter_addr.ss_family,
+                get_ip_addr((struct sockaddr *)&connecter_addr),
+                s, sizeof s);
+            printf("server: got connection from %s\n", s);
+
+            thread_ret = pthread_create(&thread, NULL, manage_client, (void*)connect_fd);
         }
+        */
 
-        inet_ntop(connecter_addr.ss_family,
-            get_ip_addr((struct sockaddr *)&connecter_addr),
-            s, sizeof s);
-        printf("server: got connection from %s\n", s);
-
-        thread_ret = pthread_create(&thread, NULL, manage_client, (void*)connect_fd);
+    // close open sockets
+    for (int i = 0; i < fds_ct; ++i)
+    {
+        if (fds_poll[i].fd >= 0)
+            close(fds_poll[i].fd);
     }
-    */
-
-   //close open sockets
-   for (int i = 0; i < fds_ct; ++i) {
-    if(fds_poll[i].fd >=0)
-        close(fds_poll[i].fd);
-   }
 
     exit(0);
 }
@@ -321,89 +339,99 @@ void send_room_msg (struct chat_room *this, struct irc_packet_tell_msg *to_send)
 
 
 */
-//REALLY WORKING ON IT NOW
-void process_packet(struct irc_packet_generic *incoming, int sock, int index) {
+// REALLY WORKING ON IT NOW
+void process_packet(struct irc_packet_generic *incoming, int sock, int index)
+{
 
-    switch(incoming->header.opcode) {
-        case IRC_OPCODE_ERR:
-            manage_incoming_error(incoming, sock, index);
-            break;
-        case IRC_OPCODE_HEARTBEAT:
-            heartbeat(incoming, sock, index);
-            break;
-        case IRC_OPCODE_HELLO:
-            hello(incoming, sock, index);
-            break;
+    switch (incoming->header.opcode)
+    {
+    case IRC_OPCODE_ERR:
+        manage_incoming_error(incoming, sock, index);
+        break;
+    case IRC_OPCODE_HEARTBEAT:
+        // heartbeat(incoming, sock, index);
+        break;
+    case IRC_OPCODE_HELLO:
+        hello(incoming, sock, index);
+        break;
 
-       /*case IRC_OPCODE_LIST_ROOMS:
-            break;
-        case IRC_OPCODE_JOIN_ROOM:
-            break;
-        case IRC_OPCODE_LEAVE_ROOM:
-            break;
-        case IRC_OPCODE_SEND_MSG:
-            break;
-            */
-        case IRC_OPCODE_SEND_PRIV_MSG:
-            private_message(incoming, sock, index);
-            break;
+        /*case IRC_OPCODE_LIST_ROOMS:
+             break;
+         case IRC_OPCODE_JOIN_ROOM:
+             break;
+         case IRC_OPCODE_LEAVE_ROOM:
+             break;
+         case IRC_OPCODE_SEND_MSG:
+             break;
+             */
+    case IRC_OPCODE_SEND_PRIV_MSG:
+        private_message(incoming, sock, index);
+        break;
         /*default:
 
             some kind of error management
             */
     }
-
 }
 
-void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int index) {
+void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int index)
+{
     return;
 }
 
-void hello(struct irc_packet_generic *incoming, int sock, int index) {
+void hello(struct irc_packet_generic *incoming, int sock, int index)
+{
     struct irc_packet_hello *packet = incoming;
-    //validate username?
+    // validate username?
     add_user(&packet->username, sock, index);
 }
 
-void add_user(char* username, int sock, int index) {
-    if (user_ct == MAX_USERS) {
+void add_user(char *username, int sock, int index)
+{
+    if (user_ct == MAX_USERS)
+    {
         fprintf(stderr, "server full. user could not be added.");
         manage_error(sock, index, IRC_ERR_TOO_MANY_USERS);
     }
-    if (is_user(username) == 1) {
-            frpintf(stderr, "name already in use.");
-            manage_error(sock, index, IRC_ERR_NAME_EXISTS);
-            return;
+    if (is_user(username) == 1)
+    {
+        fprintf(stderr, "name already in use.");
+        manage_error(sock, index, IRC_ERR_NAME_EXISTS);
+        return;
     }
     users[user_ct] = malloc(sizeof(struct user));
-    if (users[user_ct] != NULL) {
+    if (users[user_ct] != NULL)
+    {
         strncpy(users[user_ct]->username, username, strlen(username));
-        users[user_ct]->sock = sock; 
+        users[user_ct]->sock = sock;
         users[user_ct]->index = index;
         for (int i = 0; i < 10; ++i)
             users[user_ct]->rooms[i] = NULL;
         ++user_ct;
+        printf("user %s added successfully", username); // debug
     }
-    //deal with consequences of malloc fail
+    // deal with consequences of malloc fail
 }
 
-void manage_error(int sock, int index, uint32_t error_no) {
+void manage_error(int sock, int index, uint32_t error_no)
+{
     struct irc_packet_error curr_error;
     curr_error.header.opcode = IRC_OPCODE_ERR;
     curr_error.header.length = 4;
     curr_error.error_code = error_no;
-    if(send(sock, &curr_error, sizeof(struct irc_packet_error), 0) == -1)
+    if (send(sock, &curr_error, sizeof(struct irc_packet_error), 0) == -1)
         perror("send");
     disconnect_client(sock, index);
 }
 
-int is_user(char *username) {
-    //compare against current names
+int is_user(char *username)
+{
+    // compare against current names
     return 0;
 }
 
-
-void disconnect_client(int sock, int index) {
+void disconnect_client(int sock, int index)
+{
     fds_poll[index] = fds_poll[fds_ct - 1];
     if (users[index - 1] != NULL)
         users[fds_ct - 2]->index = index;
@@ -412,7 +440,8 @@ void disconnect_client(int sock, int index) {
     --fds_ct;
 }
 
-void private_message(struct irc_packet_generic *incoming, int socket, int index) {
+void private_message(struct irc_packet_generic *incoming, int socket, int index)
+{
     struct irc_packet_send_msg *packet = incoming;
     struct irc_packet_tell_msg outgoing;
     int new_length = packet->header.length;
@@ -421,8 +450,7 @@ void private_message(struct irc_packet_generic *incoming, int socket, int index)
     strncpy(&outgoing.msg, packet->msg, len);
     outgoing.header.opcode = IRC_OPCODE_TELL_MSG;
     outgoing.header.length = new_length;
-    strncpy(&outgoing.sending_user, users[index -1]->username, strlen(users[index -1]->username));
-    if(send(users[index-1]->sock, &outgoing, new_length + 8, 0) == -1)
+    strncpy(&outgoing.sending_user, users[index - 1]->username, strlen(users[index - 1]->username));
+    if (send(users[index - 1]->sock, &outgoing, new_length + 8, 0) == -1)
         perror("send");
-
 }
