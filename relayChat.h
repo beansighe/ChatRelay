@@ -1,8 +1,8 @@
 
 
-#pragma once
 
 #ifndef RELAYCHAT_H
+
 #define RELAYCHAT_H
 
 
@@ -33,6 +33,9 @@
 
 #define MAXUSERS 20
 //The max number of users allowed per room
+
+#define MAXROOMS 20
+//the maximum number of rooms the server can have
 
 
 // values
@@ -161,52 +164,9 @@ int validate_string(char * text, int length);
 
 
 
-// store ip of socket connection ??????
-// source: beej.us/guide/bgnet
-void *get_ip_addr(struct sockaddr *sa) {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
+void *get_ip_addr(struct sockaddr *sa);
 
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
-int find_sock_struct(struct addrinfo *server_info, struct addrinfo *valid_sock) {
-	int ret, socket_fd;
-	struct addrinfo pre_info;
-
-
-	memset(&pre_info, 0, sizeof pre_info);
-	pre_info.ai_family = AF_UNSPEC;
-	pre_info.ai_socktype = SOCK_STREAM;
-	pre_info.ai_flags = AI_PASSIVE;
-
-	// error check
-	if ((ret = getaddrinfo(NULL, PORT, &pre_info, &server_info)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
-		return 1;						//how to communicate error back
-	}
-
-	for (valid_sock = server_info; valid_sock != NULL; valid_sock = valid_sock->ai_next) {
-		if ((socket_fd = socket(valid_sock->ai_family, valid_sock->ai_socktype,
-				valid_sock->ai_protocol)) == -1) {
-			perror("server: socket");
-			continue;
-		}
-
-		// something about setsockopt so sockets can be reused??
-
-		if (bind(socket_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1) {
-			close(socket_fd);
-			perror("server: bind");
-			continue;
-		}
-
-		break;
-	}
-
-	return socket_fd;
-}
+int find_sock_struct(struct addrinfo *server_info, struct addrinfo *valid_sock);
 
 /*
 void disconnect();
