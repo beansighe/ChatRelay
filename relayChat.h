@@ -107,7 +107,7 @@ typedef struct irc_packet_hello {
 		//{.opcode = IRC_OPCODE_HELLO, .length = 24};
 	uint32_t version;
 	char username[20];
-}irc_packet_error_t;
+}irc_packet_hello_t;
 
 //Room Messages
 typedef struct irc_packet_list_rooms {
@@ -158,6 +158,8 @@ typedef struct irc_packet_tell_msg {
 //shared functions
 
 int validate_string(char * text, int length);
+
+
 
 // store ip of socket connection ??????
 // source: beej.us/guide/bgnet

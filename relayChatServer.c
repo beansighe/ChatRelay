@@ -128,6 +128,12 @@ int main(void) {
 
         // check for timeout
         if (check == 0) {
+            //Instead of shutting down, this is where we should handle heartbeat logic for the clients
+            //Loop over each client and check there timestamps.
+            //If last received is older than 5*timeoutWindow, kick them
+            //If last sent is old, send heartbeat
+
+            //After looping over clients and sending heartbeats, the poll loop will continue to next iteration 
             printf(" poll() timeout. Server shutting down. Goodbye.\n"); //why no disconnect set here?
             break;
         }
@@ -176,6 +182,7 @@ int main(void) {
             
             }
             else {
+                //A packet has been received from a client
                 printf(" fd %d is readable\n", fds_poll[i].fd);
                 close_connection = FALSE;
 

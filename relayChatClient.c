@@ -7,9 +7,6 @@
 #include "relayChat.h" 
 #include <string.h>
 
-#define MAXDATASIZE 100 // buffer size
-
-
 struct room;
 typedef struct room
 {
@@ -404,7 +401,7 @@ void updateRoomMembership(struct irc_packet_list_resp * input)
 
 int main(int argc, char *argv[]) {
     int socket_fd, numbytes;
-    char buf[MAXDATASIZE];
+    //char buf[MAXDATASIZE];
     struct addrinfo pre_info, *server_info, *valid_sock;
     int ret;
     char s[INET6_ADDRSTRLEN];
@@ -466,7 +463,7 @@ int main(int argc, char *argv[]) {
     
     freeaddrinfo(server_info); //done with this
 
-
+    /*
     if ((numbytes = recv(socket_fd, buf, MAXDATASIZE-1, 0)) == -1) {
         perror("recv");
         exit(1);
@@ -475,7 +472,7 @@ int main(int argc, char *argv[]) {
     buf[numbytes] = '\0';
 
     printf("client: received '%s'\n", buf);
-
+    */
     close(socket_fd);
 
 
