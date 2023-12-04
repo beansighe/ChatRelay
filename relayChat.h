@@ -1,3 +1,11 @@
+
+
+
+#ifndef RELAYCHAT_H
+
+#define RELAYCHAT_H
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -5,6 +13,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
+
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -15,7 +25,18 @@
 #include <signal.h>
 #include <time.h>
 #include <pthread.h>
-#include <limits.h>
+
+
+#define MAXMSGLENGTH 8000
+#define MAXINPUTLENGTH 2000
+//The longest allowed text length, and the longest input the client will read (arguably could stand to be the same)
+
+#define MAXUSERS 20
+//The max number of users allowed per room
+
+#define MAXROOMS 20
+//the maximum number of rooms the server can have
+
 
 // values
 #define PORT "6667"
@@ -55,142 +76,108 @@
 
 
 //Generic Messages
-struct irc_packet_header {
+typedef struct irc_packet_header {
 	uint32_t opcode;
 	uint32_t length;
-};
+}irc_packet_header_t;
 
-struct irc_packet_generic {
+//do we actually need this data type? it seems like it's just a pattern
+//for the other packets defined below
+typedef struct irc_packet_generic {
 	struct irc_packet_header header;
 	uint8_t content[];
-};
+}irc_packet_generic_t;
 
 // Heartbeat Messages
-struct irc_packet_heartbeat {
+typedef struct irc_packet_heartbeat {
 	struct irc_packet_header header;// = 
 	//	{.opcode = IRC_OPCODE_HEARTBEAT, .length = 0};
-};
+}irc_packet_heartbeat_t;
 
 //Error Messages
-struct irc_packet_error {
+typedef struct irc_packet_error {
 	struct irc_packet_header header; //=
 		//{.opcode = IRC_OPCODE_ERR, .length = 4};
 	uint32_t error_code;
-};
+}irc_packet_error_t;
 
 
 // CLIENT MESSAGES
 
 //Hello
-struct irc_packet_hello {
+typedef struct irc_packet_hello {
 	struct irc_packet_header header;// =
 		//{.opcode = IRC_OPCODE_HELLO, .length = 24};
 	uint32_t version;
 	char username[20];
-};
+}irc_packet_hello_t;
 
 //Room Messages
-struct irc_packet_list_rooms {
+typedef struct irc_packet_list_rooms {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS, .length = 0};
-};
+}irc_packet_list_rooms_t;
 
-struct irc_packet_join {
+typedef struct irc_packet_join {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_JOIN_ROOM, .length = 20};
 	char room_name[20];
-};
+}irc_packet_join_t;
 
-struct irc_packet_leave {
+typedef struct irc_packet_leave {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LEAVE_ROOM, .length = 20};
 	char room_name[20];
-};
+}irc_packet_leave_t;
 
 // User Messages
-struct irc_packet_send_msg {
+typedef struct irc_packet_send_msg {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_SEND_MSG, .length = LENGTH};
 	char target_name[20];
 	char msg[];//[LENGTH - 20];
-};
+}irc_packet_send_msg_t;
 
 // SERVER MESSAGES
 
 // Room List Response
-struct irc_packet_list_resp {
+typedef struct irc_packet_list_resp {
 	struct irc_packet_header header;// = 
 		//{.opcode = IRC_OPCODE_LIST_ROOMS_RESP, .length = LENGTH};
 	char identifier[20];
 	char item_names[];//[(LENGTH/20) - 1][20];
-};
+}irc_packet_list_resp_t;
 
 // User Message Forwarding
-struct irc_packet_tell_msg {
+typedef struct irc_packet_tell_msg {
 	struct irc_packet_header header;// =
 		//{.opcode = IRC_OPCODE_TELL_MSG, .length = LENGTH};
 	char target_name[20];
 	char sending_user[20];
 	char msg[];//[LENGTH - 40];
-};
+}irc_packet_tell_msg_t;
 
-// STORAGE STRUCTS
-struct user {
-	int sock;
-	int index;
-	char username[20];
-	struct user *rooms[10];
-};
 
-struct room {
-	char *usernames[10];
-	struct user *room_users[10];
-};
 //shared functions
 
-// store ip of socket connection ??????
-// source: beej.us/guide/bgnet
-void *get_ip_addr(struct sockaddr *sa) {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
-
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
-int find_sock_struct(struct addrinfo *server_info, struct addrinfo *valid_sock) {
-	int ret, socket_fd;
-	struct addrinfo pre_info;
+int validate_string(char * text, int length);
 
 
-	memset(&pre_info, 0, sizeof pre_info);
-	pre_info.ai_family = AF_UNSPEC;
-	pre_info.ai_socktype = SOCK_STREAM;
-	pre_info.ai_flags = AI_PASSIVE;
 
-	// error check
-	if ((ret = getaddrinfo(NULL, PORT, &pre_info, &server_info)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
-		return 1;						//how to communicate error back
-	}
+void *get_ip_addr(struct sockaddr *sa);
 
-	for (valid_sock = server_info; valid_sock != NULL; valid_sock = valid_sock->ai_next) {
-		if ((socket_fd = socket(valid_sock->ai_family, valid_sock->ai_socktype,
-				valid_sock->ai_protocol)) == -1) {
-			perror("server: socket");
-			continue;
-		}
+int find_sock_struct(struct addrinfo *server_info, struct addrinfo *valid_sock);
 
-		// something about setsockopt so sockets can be reused??
+/*
+void disconnect();
 
-		if (bind(socket_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1) {
-			close(socket_fd);
-			perror("server: bind");
-			continue;
-		}
+*/
 
-		break;
-	}
 
-	return socket_fd;
-}
+
+
+
+
+
+#endif
+
