@@ -734,6 +734,7 @@ int main(int argc, char *argv[]) {
                 freeaddrinfo(server_info); //done with this
 
                 sock = socket_fd;
+                streams[1].fd = sock;
                 //send a fresh hello
                 send(sock, &greeting, sizeof(irc_packet_hello_t), 0);
                 lastSent = time(NULL);

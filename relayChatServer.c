@@ -12,6 +12,28 @@
 #define BACKLOG 10
 #define POLL_MINS 5
 
+struct room_data;//if doing a linked list need circular declaration
+typedef struct room_data
+{
+    char roomName[20];
+    char users[MAXUSERS][20];//the names of users in the room, sorted by name
+    int userIDs[MAXUSERS];//the index where the user lives in the userData and file descriptor parallel arrays
+    int countUsers;
+    // room_data * next; //if a linked list
+}room_data_t;
+
+typedef struct client_data
+{
+    char name[20];
+    int roomIDs[MAXROOMS];//if room data is stored in an array, else use an array of pointers
+    int countRooms;
+    time_t lastSent;
+    time_t lastRecvd;
+
+}client_data_t;
+
+int userCount = 0;
+client_data_t userData[MAXUSERS + 1];//to keep it parallel with the fds_poll array
 
 void *manage_client(void *data);
 
@@ -41,12 +63,15 @@ int main(void) {
    //poll stuff
    struct pollfd fds_poll[MAX_USERS];
    int fds_ct = 1, current_ct = 0, i, j;
-   int timeout = POLL_MINS * 60 * 1000; // mins to millisecs
+   int timeout = 2500;//interrupt polling to check heartbeat
+   //POLL_MINS * 60 * 1000; // mins to millisecs
 
    // incoming data mgmt
    char buffer[BUFSIZ];
 
 
+    //perror("test");
+    //printf("other test\n");
 
     //find and bind socket
 	memset(&pre_info, 0, sizeof pre_info);
@@ -121,7 +146,7 @@ int main(void) {
     do {
         // call poll
         printf("Polling sockets. . . \n");
-        if ((check = poll(fds_poll, fds_ct, timeout)) < 0) {
+        if ((check = poll(fds_poll, fds_ct, 100 * timeout)) < 0) {
             perror(" poll() failed");
             break;
         }
@@ -134,8 +159,9 @@ int main(void) {
             //If last sent is old, send heartbeat
 
             //After looping over clients and sending heartbeats, the poll loop will continue to next iteration 
-            printf(" poll() timeout. Server shutting down. Goodbye.\n"); //why no disconnect set here?
-            break;
+            //printf(" poll() timeout. Server shutting down. Goodbye.\n"); //why no disconnect set here?
+            continue;
+            //break;
         }
 
         // Identify readable sockets
@@ -200,6 +226,13 @@ int main(void) {
                 // check for disconnect from client
                 if (check == 0) {
                     printf(" Connection closed by client\n");
+                    //remove the client from all data structures
+                    //remove the client from rooms they were in and update rmeaining room members accordingly
+                    
+                    //remove client from fds_poll
+
+                    //close the socket with the client
+
                     close_connection = TRUE;
                     break;
                 }
