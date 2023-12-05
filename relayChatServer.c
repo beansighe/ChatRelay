@@ -61,6 +61,7 @@ void remove_from_room(int room_index, int user_index);
 void leave_room(struct irc_packet_generic *incoming, int sock, int index);
 void add_to_room(int user_index, int room_index);
 void update_user_data(room_data_t *to_update, int new_user_index);
+int find_user(char *username);
 
 int main(void)
 {
@@ -291,7 +292,7 @@ int main(void)
     exit(0);
 }
 
-/*void send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser)
+void send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser)
 {
     int i = 0;
     // call validate string on the room name and message body
@@ -326,7 +327,6 @@ int main(void)
         return 1;
     }
 }
-*/
 
 void process_packet(struct irc_packet_generic *incoming, int sock, int index)
 {
@@ -424,7 +424,12 @@ void manage_error(int sock, int index, uint32_t error_no)
 int is_user(char *username)
 {
     // compare against current names
-    return 0;
+    for (int i = 0; i < userCount; ++i)
+    {
+        if (strncmp(username, userData[i].name, 20) == 0)
+            return 0;
+    }
+    return 1;
 }
 
 void disconnect_client(int sock, int index)
@@ -478,6 +483,8 @@ void private_message(struct irc_packet_generic *incoming, int socket, int index)
     struct irc_packet_tell_msg outgoing;
     int new_length = packet->header.length;
     int len = new_length - 20;
+    int target_index;
+    // check if intended target is a user
     if (len > MAXMSGLENGTH)
     {
         manage_error(socket, index, IRC_ERR_ILLEGAL_LENGTH);
@@ -497,9 +504,32 @@ void private_message(struct irc_packet_generic *incoming, int socket, int index)
     strncpy(&outgoing.msg, packet->msg, len);
     outgoing.header.opcode = IRC_OPCODE_TELL_MSG;
     outgoing.header.length = new_length;
+    target_index = find_user(packet->target_name);
+    if (target_index == -1)
+    {
+        manage_error(socket, index, IRC_ERR_ILLEGAL_NAME);
+        return;
+    }
     strncpy(&outgoing.sending_user, userData[index].name, strlen(userData[index].name));
-    if (send(fds_poll[index].fd, &outgoing, new_length + 8, 0) == -1)
+    if (send(fds_poll[target_index].fd, &outgoing, new_length + 8, 0) == -1)
         perror("send");
+    else
+    {
+        userData[index].lastSent = time(NULL);
+        userData[target_index].lastRecvd = time(NULL);
+    }
+}
+
+int find_user(char *username)
+{
+    for (int i = 0; i < userCount; ++i)
+    {
+        if (strncmp(username, userData[i].name, 20) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void join_room(struct irc_packet_generic *incoming, int sock, int index)
@@ -544,13 +574,23 @@ void add_to_room(int user_index, int room_index)
         }
     }
     // add username to roster
-    strncpy(&roomList[room_index].users[roomList[room_index].countUsers], &userData[user_index].name, 20);
-    // add new user index and increment user ct
-    roomList[room_index].userIDs[(roomList[room_index].countUsers++)] = user_index;
-    // send update to room members
-    send_room_roster(&roomList[room_index]);
-    // add room to user's data and increment user's room count
-    userData[user_index].roomIDs[(userData[user_index].countRooms)++] = room_index;
+    for (int i = 0; i < roomList[room_index].countUsers; ++i)
+    {
+        if (strncmp(userData[user_index].name, roomList[room_index].users[i], 20) > 0)
+        {
+            memcpy(roomList[room_index].users[i + i], roomList[room_index].users[i], sizeof(char) * 20 * (roomList[room_index].countUsers - i - 1));
+            strncpy(roomList[room_index].users[i], userData[user_index].name, 20);
+            roomList[room_index].userIDs[i] = user_index;
+
+            // increment user ct
+            ++roomList[room_index].countUsers;
+            // send update to room members
+            send_room_roster(&roomList[room_index]);
+            // add room to user's data and increment user's room count
+            userData[user_index].roomIDs[(userData[user_index].countRooms)++] = room_index;
+            return;
+        }
+    }
 }
 
 void leave_room(struct irc_packet_generic *incoming, int sock, int index)
