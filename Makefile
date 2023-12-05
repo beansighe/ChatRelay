@@ -6,7 +6,7 @@ PROGS=relayChatClient relayChatServer
 
 all: $(PROGS)
 
-%: %.c
+%: %.c common.c
 	$(CC) $(CFLAGS) $(DFLAGS) $< -o $@
 
 clean:
