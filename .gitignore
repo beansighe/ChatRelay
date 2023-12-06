@@ -1,6 +1,9 @@
 # Prerequisites
 *.d
 
+# Vscode
+.vscode*
+
 # Object files
 *.o
 *.ko
@@ -50,6 +53,10 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+client
+relayChatClient
+server
+relayChatServer
 
 Project.code-workspace
 settings.json
