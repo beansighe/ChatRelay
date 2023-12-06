@@ -148,6 +148,11 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
     // {
     //     recvBuf = malloc(capacity);
     // }
+    struct irc_packet_tell_msg *message = NULL;
+    struct irc_packet_list_resp *roomlist = NULL;
+    int result = 0;
+    struct irc_packet_error output;
+    irc_packet_error_t reply;
 
     size_t size = 0;
     // while(1);
@@ -170,7 +175,7 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         // no work necessary, timestamp already updated
         break;
     case IRC_OPCODE_LIST_ROOMS_RESP:
-        struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
+        roomlist = (struct irc_packet_list_resp *)input;
         // struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
         printf("\033[32mThe rooms currently available are: \n");
         for (int i = 0; i < (roomlist->header.length / 20 - 1); ++i)
@@ -184,12 +189,12 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         break;
     case IRC_OPCODE_TELL_MSG:
     case IRC_OPCODE_TELL_PRIV_MSG:
-        struct irc_packet_tell_msg *message = recvBuf;
-        int result = validate_string(message->sending_user, 20);
+        message = recvBuf;
+        result = validate_string(message->sending_user, 20);
         if (message->header.length > 40 + MAXMSGLENGTH || message->header.length < 40)
         {
             // err invalid length
-            irc_packet_error_t reply;
+            //irc_packet_error_t reply;
             reply.header.opcode = IRC_OPCODE_ERR;
             reply.header.length = 4;
             reply.error_code = IRC_ERR_ILLEGAL_LENGTH;
@@ -199,7 +204,7 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         if (result != 1)
         {
             // err bad string
-            irc_packet_error_t reply;
+            //irc_packet_error_t reply;
             reply.header.opcode = IRC_OPCODE_ERR;
             reply.header.length = 4;
             reply.error_code = IRC_ERR_ILLEGAL_MESSAGE;
@@ -210,7 +215,6 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         if (result != 1)
         {
             // err bad string
-            irc_packet_error_t reply;
             reply.header.opcode = IRC_OPCODE_ERR;
             reply.header.length = 4;
             reply.error_code = IRC_ERR_ILLEGAL_MESSAGE;
@@ -221,7 +225,7 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         if (result != 1)
         {
             // err bad string
-            irc_packet_error_t reply;
+            //irc_packet_error_t reply;
             reply.header.opcode = IRC_OPCODE_ERR;
             reply.header.length = 4;
             reply.error_code = IRC_ERR_ILLEGAL_MESSAGE;
@@ -237,7 +241,7 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         // invalid opcode
         
         printf("\033[31mReceived invalid data, disconnecting from server...\033[0m\n");
-        struct irc_packet_error output;
+        
         output.error_code = IRC_ERR_ILLEGAL_OPCODE;
         output.header.opcode = IRC_OPCODE_ERR;
         output.header.length = 4;
@@ -253,7 +257,15 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
 
 int sender(int sock, time_t *lastSent, char *inputBuf)
 {
-
+    char *rname = NULL;
+    char *msgbody = NULL;
+    int msglength = 0;
+    struct irc_packet_send_msg *roommsg = NULL;
+    struct irc_packet_list_rooms outgoing;
+    irc_packet_leave_t leavemsg;
+    room_t *current = NULL;
+    room_t *previous = NULL;
+    int notFound = 1;
     // while (1)
     //{
     // read a line from the user
@@ -273,8 +285,8 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
             // usage \u username msgbody
             
             strtok(inputBuf, " ");
-            char *rname = strtok(NULL, " ");
-            char *msgbody = strtok(NULL, "\0\n");
+            rname = strtok(NULL, " ");
+            msgbody = strtok(NULL, "\0\n");
             if (msgbody == NULL)
             {
                 if (inputBuf[1] == 'r')
@@ -288,10 +300,10 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                     return -2;
                 }
             }
-            int msglength = strlen(msgbody) + 1;
+            msglength = strlen(msgbody) + 1;
             //printf("Message length %d\n", msglength);
             
-            struct irc_packet_send_msg *roommsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
+            roommsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
             if (inputBuf[1] == 'r')
             {
                 roommsg->header.opcode = IRC_OPCODE_SEND_MSG;
@@ -332,7 +344,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
 
                 // pthread_mutex_lock(&rooms_mutex);
                 // first check we are not already in the room
-                room_t *current = roomHead;
+                current = roomHead;
                 while (current)
                 {
                     if (strncmp(joinmsg.room_name, current->roomName, 20) == 0)
@@ -361,7 +373,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
             break;
         case 'l': // list rooms
             // usage \l
-            struct irc_packet_list_rooms outgoing;
+            //struct irc_packet_list_rooms outgoing;
             outgoing.header.opcode = IRC_OPCODE_LIST_ROOMS;
             outgoing.header.length = 0;
             send(sock, &outgoing, sizeof(struct irc_packet_list_rooms), 0);
@@ -374,7 +386,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                 printf("usage \\e roomname\n");
                 return -2;
             }
-            irc_packet_leave_t leavemsg;
+            //irc_packet_leave_t leavemsg;
             memset(&leavemsg, '\0', sizeof(irc_packet_leave_t));
             strncpy(leavemsg.room_name, inputBuf + 3, 20);
             leavemsg.header.opcode = IRC_OPCODE_LEAVE_ROOM;
@@ -382,9 +394,9 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
 
             // pthread_mutex_lock(&rooms_mutex);
             // loop through rooms to find matching one and remove it, send leaving packet
-            room_t *current = roomHead;
-            room_t *previous = NULL;
-            int notFound = 1;
+            current = roomHead;
+            previous = NULL;
+            notFound = 1;
             while (current && notFound)
             {
                 if (strncmp(leavemsg.room_name, current->roomName, 20) == 0)
@@ -493,9 +505,9 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
             {
                 // new user has joined
                 endSRC[i] = serverIndex;
+                fprintf(stdout, "\033[32m%.20s joined %.20s\033[0m\n", input->item_names[serverIndex], input->identifier);
                 ++serverIndex;
                 ++i;
-                fprintf(stdout, "\033[32m%.20s joined %.20s\033[0m\n", input->item_names[serverIndex], input->identifier);
             }
         }
         while (serverIndex < inputCount && i < MAXUSERS)
