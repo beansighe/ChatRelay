@@ -84,8 +84,9 @@ int main(void)
     */
 
     // poll stuff
-    fds_poll = malloc(sizeof *fds_poll * (1 + MAX_USERS)); // could change to be variable size for storage efficiency or to remove the user limit
-    int timeout = POLL_MINS * 60 * 1000;             // mins to millisecs
+    fds_poll = malloc(sizeof(struct pollfd) * (1 + MAX_USERS)); // could change to be variable size for storage efficiency or to remove the user limit
+    int timeout = 2500;//heartbeat frequency
+    //POLL_MINS * 60 * 1000;             // mins to millisecs
 
     // incoming data mgmt
     char buffer[BUFSIZ];
@@ -121,13 +122,14 @@ int main(void)
         }
 
         // make non-blocking: inherited socks will share this attribute
+        /**/
         if ((check = ioctl(listen_fd, FIONBIO, &yes)) < 0)
         {
             perror("ioctl() failed");
             close(listen_fd);
             exit(-1);
         }
-
+        /**/
         // bind socket
         if (bind(listen_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1)
         {
@@ -168,7 +170,7 @@ int main(void)
     fds_poll[0].events = POLLIN;
 
     fds_ct = 1;
-
+    userCount = 0;
     do
     {
 
@@ -221,6 +223,11 @@ int main(void)
                     printf(" New incoming client - using fd %d\n", connect_fd);
                     fds_poll[fds_ct].fd = connect_fd;
                     fds_poll[fds_ct].events = POLLIN;
+                    fds_poll[fds_ct].revents = 0;
+                    userData[fds_ct].name[0] = '\0';
+                    userData[fds_ct].lastRecvd = time(NULL);
+                    userData[fds_ct].countRooms = 0;
+                    userData[fds_ct].lastSent = time(NULL);
                     ++fds_ct;
                     ++userCount;
                 } while (connect_fd != -1);
@@ -239,6 +246,7 @@ int main(void)
                         perror(" recv() failed. closing connection.");
                         disconnect_client(fds_poll[i].fd, i);
                         --i;
+                        --current_ct;
                         break;
                     }
                 }
@@ -255,11 +263,14 @@ int main(void)
                 }
                 else
                 {
+                    printf("Processing packet\n");
                     char *to_process = malloc(check);
                     strncpy(to_process, buffer, check);
                     if(process_packet((irc_packet_generic_t *)to_process, rcv_sock, i) == -1)
                     {
                         --i;
+                        printf("An error occurred while processing, user has been kicked\n");
+                        --current_ct;
                     }
                     free(to_process);
                 }
@@ -343,6 +354,7 @@ int send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser)
 int process_packet(struct irc_packet_generic *incoming, int sock, int index)
 {
     userData[index].lastRecvd = time(NULL);
+    printf("Packet opcode: %u\n", incoming->header.opcode);
     switch (incoming->header.opcode)
     {
     case IRC_OPCODE_ERR:
@@ -400,9 +412,9 @@ int hello(struct irc_packet_generic *incoming, int sock, int index)
     {
         return add_user(packet->username, sock, index);
     }
-    else
-        manage_error(sock, index, IRC_ERR_ILLEGAL_NAME);
-        return -1;
+    printf("Bad string\n");
+    manage_error(sock, index, IRC_ERR_ILLEGAL_NAME);
+    return -1;
 }
 
 int add_user(char *username, int sock, int index)
@@ -432,6 +444,7 @@ void manage_error(int sock, int index, uint32_t error_no)
     curr_error.header.opcode = IRC_OPCODE_ERR;
     curr_error.header.length = 4;
     curr_error.error_code = error_no;
+    printf("kicking user with error code %u\n", error_no);
     if (send(sock, &curr_error, sizeof(struct irc_packet_error), 0) == -1)
         perror("send");
     disconnect_client(sock, index);
@@ -440,7 +453,7 @@ void manage_error(int sock, int index, uint32_t error_no)
 int is_user(char *username)
 {
     // compare against current names
-    for(int i = 0; i < userCount; ++i)
+    for(int i = 1; i <= userCount; ++i)
     {
         if(strncmp(username, userData[i].name, 20) == 0)
         {
@@ -555,7 +568,7 @@ int private_message(struct irc_packet_generic *incoming, int socket, int index)
 
 int find_user(char *username)
 {
-    for (int i = 0; i < userCount; ++i)
+    for (int i = 1; i <= userCount; ++i)
     {
         if (strncmp(username, userData[i].name, 20) == 0)
         {

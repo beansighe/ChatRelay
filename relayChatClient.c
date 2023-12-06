@@ -137,7 +137,7 @@ int keepalive(int sock, time_t *lastSent, time_t *lastRecvd)
     if (now - *lastSent >= 3)
     { // Outgoing heartbeat is stale
         // send heartbeat
-        printf("sending heartbeat\n");
+        //printf("sending heartbeat\n");
         send(sock, &pulse, sizeof(irc_packet_heartbeat_t), 0);
         *lastSent = time(NULL);
     }
@@ -546,6 +546,16 @@ int main(int argc, char *argv[])
     pre_info.ai_family = AF_UNSPEC;
     pre_info.ai_socktype = SOCK_STREAM;
 
+    // init behavior
+    // Get username from user
+    irc_packet_hello_t greeting;
+    
+    memset(greeting.username, '\0', 20);
+    printf("Welcome to the IRC client, please enter your desired username:\n");
+    fgets(username, 20, stdin);
+    strncpy(greeting.username, username, 20);
+    greeting.header.opcode = IRC_OPCODE_HELLO;
+
     // connect to socket
     if ((ret = getaddrinfo(argv[1], PORT, &pre_info, &server_info)) != 0)
     {
@@ -609,13 +619,6 @@ int main(int argc, char *argv[])
     // close(socket_fd);
     sock = socket_fd;
 
-    // init behavior
-    // Get username from user
-    irc_packet_hello_t greeting;
-    memset(greeting.username, '\0', 20);
-    printf("Welcome to the IRC client, please enter your desired username:\n");
-    fgets(username, 20, stdin);
-    strncpy(greeting.username, username, 20);
     greeting.header.opcode = IRC_OPCODE_HELLO;
     greeting.header.length = 24;
     greeting.version = 1;
@@ -803,6 +806,8 @@ int main(int argc, char *argv[])
 
     close(sock);
 
+
+/*
     // nonsense tests start here
     struct irc_packet_send_msg *test = malloc(sizeof(struct irc_packet_send_msg) + 27 * sizeof(char));
 
@@ -821,6 +826,6 @@ int main(int argc, char *argv[])
         sleep(10);
         --count;
     }
-
+*/
     exit(0);
 }
