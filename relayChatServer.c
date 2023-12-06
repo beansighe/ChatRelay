@@ -61,6 +61,7 @@ void remove_from_room(int room_index, int user_index);
 int leave_room(struct irc_packet_generic *incoming, int sock, int index);
 void add_to_room(int user_index, int room_index);
 void update_user_data(room_data_t *to_update, int new_user_index);
+int find_user(char *username);
 
 int main(void)
 {
@@ -302,6 +303,7 @@ int send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser)
     if (validate_string(incoming->target_name, 20) != 1 || validate_string(incoming->msg, 20) != 1)
     {
         // bad string
+        manage_error(fds_poll[sourceUser].fd, sourceUser, IRC_ERR_ILLEGAL_MESSAGE);
         return -1;
     }
     for (i = 0; i < roomCount; ++i)
@@ -309,15 +311,21 @@ int send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser)
         if (strncmp(incoming->target_name, roomList[i].roomName, 20) == 0)
         {
             irc_packet_tell_msg_t *reply = malloc(sizeof(irc_packet_tell_msg_t) + incoming->header.length - 20);
+            memset(reply, '\0', sizeof(irc_packet_tell_msg_t) + incoming->header.length - 20);
+            reply->header.opcode = IRC_OPCODE_TELL_MSG;
+            reply->header.length = incoming->header.length;
             memset(reply, '\0', sizeof(irc_packet_tell_msg_t) + incoming->header.length + 20);
             memcpy(reply->msg, incoming->msg, incoming->header.length - 20);
             strncpy(reply->sending_user, userData[sourceUser].name, 20);
+            strncpy(reply->msg, incoming->msg, incoming->header.length - 20);
             for (int j = 0; j < roomList[i].countUsers; ++j)
             {
                 if (sourceUser != roomList[i].userIDs[j])
                 {
-                    memcpy(reply->target_name, roomList[i].users[j], 20);
-                    send(fds_poll[roomList[i].userIDs[j]].fd, reply, sizeof(irc_packet_tell_msg_t) + incoming->header.length - 20, 0);
+                    if (send(fds_poll[roomList[i].userIDs[j]].fd, reply, sizeof(irc_packet_tell_msg_t) + incoming->header.length - 20, 0) == -1)
+                    {
+                        perror("send");
+                    }
                     userData[roomList[i].userIDs[j]].lastSent = time(NULL);
                 }
             }
@@ -326,7 +334,7 @@ int send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser)
     }
     if (i == roomCount)
     { // target room does not exist
-        return 1;
+        manage_error(fds_poll[sourceUser].fd, sourceUser, IRC_ERR_UNKNOWN);
     }
 }
 
@@ -341,7 +349,8 @@ int process_packet(struct irc_packet_generic *incoming, int sock, int index)
         return -1;
         break;
     case IRC_OPCODE_HEARTBEAT:
-        // heartbeat(incoming, sock, index);
+        //heartbeat(incoming, index);
+        //already updated lastRecvd for user
         break;
     case IRC_OPCODE_HELLO:
         hello(incoming, sock, index);
@@ -373,6 +382,8 @@ int process_packet(struct irc_packet_generic *incoming, int sock, int index)
     }
     return 0;
 }
+
+
 
 void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int index)
 {
@@ -489,6 +500,8 @@ void room_list(struct irc_packet_generic *incoming, int socket, int index)
 
     if (send(fds_poll[index].fd, &outgoing, new_length + 8, 0) == -1)
         perror("send");
+    else
+        userData[index].lastSent = time(NULL);
 }
 
 int private_message(struct irc_packet_generic *incoming, int socket, int index)
@@ -497,6 +510,8 @@ int private_message(struct irc_packet_generic *incoming, int socket, int index)
     struct irc_packet_tell_msg outgoing;
     int new_length = packet->header.length;
     int len = new_length - 20;
+    int target_index;
+    // check if intended target is a user
     if (len > MAXMSGLENGTH)
     {
         manage_error(socket, index, IRC_ERR_ILLEGAL_LENGTH);
@@ -516,10 +531,32 @@ int private_message(struct irc_packet_generic *incoming, int socket, int index)
     strncpy(outgoing.msg, packet->msg, len);
     outgoing.header.opcode = IRC_OPCODE_TELL_MSG;
     outgoing.header.length = new_length;
-    strncpy(outgoing.sending_user, userData[index].name, strlen(userData[index].name));
-    if (send(fds_poll[index].fd, &outgoing, new_length + 8, 0) == -1)
+    target_index = find_user(packet->target_name);
+    if (target_index == -1)
+    {
+        manage_error(socket, index, IRC_ERR_ILLEGAL_NAME);
+        return -1;
+    }
+    strncpy(outgoing.sending_user, userData[index].name, 20);//strlen(userData[index].name));
+    if (send(fds_poll[target_index].fd, &outgoing, new_length + 8, 0) == -1)
         perror("send");
+    else
+    {
+        userData[target_index].lastSent = time(NULL);
+    }
     return 0;
+}
+
+int find_user(char *username)
+{
+    for (int i = 0; i < userCount; ++i)
+    {
+        if (strncmp(username, userData[i].name, 20) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void join_room(struct irc_packet_generic *incoming, int sock, int index)
@@ -575,6 +612,24 @@ void add_to_room(int user_index, int room_index)
             inserted = 1;
             ++roomList[room_index].countUsers;
             break;
+        }
+    }
+    // add username to roster
+    for (int i = 0; i < roomList[room_index].countUsers; ++i)
+    {
+        if (strncmp(userData[user_index].name, roomList[room_index].users[i], 20) > 0)
+        {
+            memcpy(roomList[room_index].users[i + i], roomList[room_index].users[i], sizeof(char) * 20 * (roomList[room_index].countUsers - i - 1));
+            strncpy(roomList[room_index].users[i], userData[user_index].name, 20);
+            roomList[room_index].userIDs[i] = user_index;
+
+            // increment user ct
+            ++roomList[room_index].countUsers;
+            // send update to room members
+            send_room_roster(&roomList[room_index]);
+            // add room to user's data and increment user's room count
+            userData[user_index].roomIDs[(userData[user_index].countRooms)++] = room_index;
+            return;
         }
     }
     if(inserted == 0)
@@ -661,6 +716,8 @@ void send_room_roster(room_data_t *room)
         int curr_sock = room->userIDs[i];
         if (send(fds_poll[curr_sock].fd, roster, new_length + 8, 0) == -1)
             perror("send");
+        else
+            userData[room->userIDs[i]].lastSent = time(NULL);
     }
 }
 
@@ -684,8 +741,10 @@ int keepalive(int userID)
     { // Outgoing heartbeat is stale
         // send heartbeat
         printf("sending heartbeat to user %d named %.20s\n", userID, userData[userID].name);
-        send(fds_poll[userID].fd, &pulse, sizeof(irc_packet_heartbeat_t), 0);
-        userData[userID].lastSent = time(NULL);
+        if (send(fds_poll[userID].fd, &pulse, sizeof(irc_packet_heartbeat_t), 0) == -1)
+            perror("send");
+        else
+            userData[userID].lastSent = time(NULL);
     }
     return 0;
 }
