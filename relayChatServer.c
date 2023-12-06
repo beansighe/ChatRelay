@@ -45,8 +45,8 @@ int fds_ct, current_ct = 0;
 
 int process_packet(struct irc_packet_generic *incoming, int sock, int index);
 void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int index);
-void hello(struct irc_packet_generic *incoming, int sock, int index);
-void add_user(char *username, int sock, int index);
+int hello(struct irc_packet_generic *incoming, int sock, int index);
+int add_user(char *username, int sock, int index);
 void manage_error(int sock, int index, uint32_t error_no);
 int is_user(char *username);
 void disconnect_client(int sock, int index);
@@ -54,12 +54,12 @@ int send_room_msg(irc_packet_send_msg_t *incoming, int sourceUser);
 int private_message(struct irc_packet_generic *incoming, int socket, int index);
 int keepalive(int userID);
 void room_list(struct irc_packet_generic *incoming, int sock, int index);
-void join_room(struct irc_packet_generic *incoming, int sock, int index);
+int join_room(struct irc_packet_generic *incoming, int sock, int index);
 void send_room_roster(room_data_t *room);
-void create_room(char room_name[20], int user_index);
+int create_room(char room_name[20], int user_index);
 void remove_from_room(int room_index, int user_index);
 int leave_room(struct irc_packet_generic *incoming, int sock, int index);
-void add_to_room(int user_index, int room_index);
+int add_to_room(int user_index, int room_index);
 void update_user_data(room_data_t *to_update, int new_user_index);
 int find_user(char *username);
 
@@ -216,7 +216,7 @@ int main(void)
                         }
                         break;
                     }
-
+                    
                     // add new sock to pollfd at next open slot, prepare for next poll
                     printf(" New incoming client - using fd %d\n", connect_fd);
                     fds_poll[fds_ct].fd = connect_fd;
@@ -238,6 +238,7 @@ int main(void)
                     {
                         perror(" recv() failed. closing connection.");
                         disconnect_client(fds_poll[i].fd, i);
+                        --i;
                         break;
                     }
                 }
@@ -353,7 +354,7 @@ int process_packet(struct irc_packet_generic *incoming, int sock, int index)
         //already updated lastRecvd for user
         break;
     case IRC_OPCODE_HELLO:
-        hello(incoming, sock, index);
+        return hello(incoming, sock, index);
         break;
     case IRC_OPCODE_LIST_ROOMS:
         room_list(incoming, sock, index);
@@ -391,33 +392,38 @@ void manage_incoming_error(struct irc_packet_generic *error_msg, int sock, int i
     return;
 }
 
-void hello(struct irc_packet_generic *incoming, int sock, int index)
+int hello(struct irc_packet_generic *incoming, int sock, int index)
 {
     struct irc_packet_hello *packet = (struct irc_packet_hello *)incoming;
     // validate username?
     if (validate_string(packet->username, strlen(packet->username)) == 1)
-        add_user(packet->username, sock, index);
+    {
+        return add_user(packet->username, sock, index);
+    }
     else
         manage_error(sock, index, IRC_ERR_ILLEGAL_NAME);
+        return -1;
 }
 
-void add_user(char *username, int sock, int index)
+int add_user(char *username, int sock, int index)
 {
     if (userCount == MAX_USERS)
     {
         fprintf(stderr, "server full. user could not be added.");
         manage_error(sock, index, IRC_ERR_TOO_MANY_USERS);
+        return -1;
     }
     if (is_user(username) == 1)
     {
         fprintf(stderr, "name already in use.");
         manage_error(sock, index, IRC_ERR_NAME_EXISTS);
-        return;
+        return -1;
     }
     strncpy(userData[index].name, username, strlen(username));
     userData[index].countRooms = 0;
     //++userCount;
     printf("user %s added successfully", username); // debug
+    return 0;
 }
 
 void manage_error(int sock, int index, uint32_t error_no)
@@ -559,7 +565,7 @@ int find_user(char *username)
     return -1;
 }
 
-void join_room(struct irc_packet_generic *incoming, int sock, int index)
+int join_room(struct irc_packet_generic *incoming, int sock, int index)
 {
     struct irc_packet_join *packet = (struct irc_packet_join *) incoming;
     if (roomCount != 0)
@@ -570,20 +576,19 @@ void join_room(struct irc_packet_generic *incoming, int sock, int index)
                 continue;
             else
             {
-                add_to_room(index, i);
-                return;
+                return add_to_room(index, i);
             }
         }
         if (roomCount == MAXROOMS)
         {
             manage_error(sock, index, IRC_ERR_TOO_MANY_ROOMS);
-            return;
+            return -1;
         }
-        create_room(packet->room_name, index);
+        return create_room(packet->room_name, index);
     }
 }
 
-void add_to_room(int user_index, int room_index)
+int add_to_room(int user_index, int room_index)
 {
     // check if user already member
     for (int i = 0; i < userData[user_index].countRooms; ++i)
@@ -592,14 +597,14 @@ void add_to_room(int user_index, int room_index)
         {
             //If the user is already in the room, just ignore
             //manage_error(fds_poll[user_index].fd, user_index, IRC_ERR_UNKNOWN);
-            return;
+            return 0;
         }
     }
     // check for space in room
     if (roomList[room_index].countUsers == MAXUSERS)
     {
         manage_error(fds_poll[user_index].fd, user_index, IRC_ERR_TOO_MANY_USERS);
-        return;
+        return -1;
     }
     
     int inserted = 0;
@@ -629,7 +634,7 @@ void add_to_room(int user_index, int room_index)
             send_room_roster(&roomList[room_index]);
             // add room to user's data and increment user's room count
             userData[user_index].roomIDs[(userData[user_index].countRooms)++] = room_index;
-            return;
+            return 0;
         }
     }
     if(inserted == 0)
@@ -644,6 +649,7 @@ void add_to_room(int user_index, int room_index)
     send_room_roster(&roomList[room_index]);
     // add room to user's data and increment user's room count
     userData[user_index].roomIDs[(userData[user_index].countRooms)++] = room_index;
+    return 0;
 }
 
 int leave_room(struct irc_packet_generic *incoming, int sock, int index)
@@ -693,7 +699,7 @@ void remove_from_room(int room_index, int user_index)
     }
 }
 
-void create_room(char room_name[20], int user_index)
+int create_room(char room_name[20], int user_index)
 {
     strncpy(roomList[roomCount].roomName, room_name, 20);
     strncpy(roomList[roomCount].users[0], userData[user_index].name, 20);
@@ -701,6 +707,7 @@ void create_room(char room_name[20], int user_index)
     roomList[roomCount].countUsers = 1;
     send_room_roster(&roomList[roomCount]);
     ++roomCount;
+    return 0;
 }
 
 void send_room_roster(room_data_t *room)
