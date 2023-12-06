@@ -607,6 +607,7 @@ int join_room(struct irc_packet_generic *incoming, int sock, int index)
                 return add_to_room(index, i);
             }
         }
+        //the loop finishes if the room did not yet exist, so make a new room
         if (roomCount == MAXROOMS)
         {
             manage_error(sock, index, IRC_ERR_TOO_MANY_ROOMS);
@@ -755,6 +756,7 @@ void send_room_roster(room_data_t *room)
     for (int i = 0; i < room->countUsers; ++i)
     {
         int curr_sock = room->userIDs[i];
+        printf("Sending roster of room %.20s to user %.20s\n", room->roomName, userData[curr_sock].name);
         if (send(fds_poll[curr_sock].fd, roster, new_length, 0) == -1)
             perror("send");
         else

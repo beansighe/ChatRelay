@@ -37,7 +37,7 @@ int get_socket_list(char *hostname, struct addrinfo *first_link)
 
     if ((ret = getaddrinfo(hostname, PORT, &pre_info, &first_link)) != 0)
     {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
+        fprintf(stderr, "\033[31mgetaddrinfo: %s\033[0m\n", gai_strerror(ret));
         return -1;
     }
 
@@ -53,14 +53,14 @@ int find_and_bind_socket(struct addrinfo **server_info, struct addrinfo *valid_s
         if ((socket_fd = socket(valid_sock->ai_family, valid_sock->ai_socktype,
                                 valid_sock->ai_protocol)) == -1)
         {
-            perror("client: socket");
+            perror("\033[31mclient: socket\033[0m\n");
             continue;
         }
 
         if (connect(socket_fd, valid_sock->ai_addr, valid_sock->ai_addrlen) == -1)
         {
             close(socket_fd);
-            perror("client: connect");
+            perror("\033[31mclient: connect\033[0m\n");
             continue;
         }
 
@@ -127,7 +127,7 @@ int keepalive(int sock, time_t *lastSent, time_t *lastRecvd)
     if (now - *lastRecvd >= 15)
     { // server is not sending heartbeats, assume connection lost
         // kill sender and receiver threads, set timeout flag and return to main.
-        printf("stale heartbeat\n");
+        printf("\033[31mstale heartbeat\033[0m\n");
         return 1;
         // Attempt to reconnect?
     }
@@ -163,7 +163,7 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
     {
     case IRC_OPCODE_ERR:
         // disconnect from server and terminate
-        printf("Kicked by the server, disconnecting from server...\n");
+        printf("\033[31mKicked by the server, disconnecting from server...\033[0m\n");
         return -1;
         break;
     case IRC_OPCODE_HEARTBEAT:
@@ -172,11 +172,12 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
     case IRC_OPCODE_LIST_ROOMS_RESP:
         struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
         // struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
-        printf("The rooms currently available are: \n");
+        printf("\033[32mThe rooms currently available are: \n");
         for (int i = 0; i < (roomlist->header.length / 20 - 1); ++i)
         {
             printf("\t%.20s\n", roomlist->item_names[i]);
         }
+        printf("\033[0m\n");
         break;
     case IRC_OPCODE_LIST_USERS_RESP:
         updateRoomMembership((struct irc_packet_list_resp *)input);
@@ -229,13 +230,13 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         }
         //if (strncmp(username, message->target_name, 20) == 0)
         //{
-            fprintf(stdout, "%.20s to %.20s: %.*s\n", message->sending_user, message->target_name, MAXMSGLENGTH, message->msg);
+            fprintf(stdout, "\033[36m%.20s to %.20s: %.*s\033[0m\n", message->sending_user, message->target_name, MAXMSGLENGTH, message->msg);
         //}
         break;
     default:
         // invalid opcode
         
-        printf("Received invalid data, disconnecting from server...\n");
+        printf("\033[31mReceived invalid data, disconnecting from server...\033[0m\n");
         struct irc_packet_error output;
         output.error_code = IRC_ERR_ILLEGAL_OPCODE;
         output.header.opcode = IRC_OPCODE_ERR;
@@ -356,7 +357,6 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
 
                     roomHead = newRoom;
                 }
-                // pthread_mutex_unlock(&rooms_mutex);
             }
             break;
         case 'l': // list rooms
@@ -486,7 +486,7 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
             else if (result < 0)
             {
                 // the user at current->members[myIndex] has left the room
-                fprintf(stdout, "%.20s left %.20s\n", current->members[myIndex], input->identifier);
+                fprintf(stdout, "\033[31m%.20s left %.20s\033[m\n", current->members[myIndex], input->identifier);
                 ++myIndex;
             }
             else
@@ -495,13 +495,13 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
                 endSRC[i] = serverIndex;
                 ++serverIndex;
                 ++i;
-                fprintf(stdout, "%.20s joined %.20s\n", input->item_names[serverIndex], input->identifier);
+                fprintf(stdout, "\033[32m%.20s joined %.20s\033[0m\n", input->item_names[serverIndex], input->identifier);
             }
         }
         while (serverIndex < inputCount && i < MAXUSERS)
         {
             // new user has joined
-            fprintf(stdout, "%.20s joined %.20s\n", input->item_names[serverIndex], input->identifier);
+            fprintf(stdout, "\033[32m%.20s joined %.20s\033[0m\n", input->item_names[serverIndex], input->identifier);
             endSRC[i] = serverIndex;
             ++serverIndex;
             ++i;
@@ -603,7 +603,7 @@ int main(int argc, char *argv[])
 
     inet_ntop(valid_sock->ai_family, get_ip_addr((struct sockaddr *)valid_sock->ai_addr),
               s, sizeof s);
-    printf("client: connecting to %s\n", s);
+    printf("\033[32mclient: connecting to %s\033[0m\n", s);
 
     freeaddrinfo(server_info); // done with this
 
@@ -687,7 +687,7 @@ int main(int argc, char *argv[])
         {
 
             // server disconnected due to timeout
-            fprintf(stdout, "The server is unresponsive. Do you want to attempt to reconnect? (y/n)\n");
+            fprintf(stdout, "\033[31m server is unresponsive. Do you want to attempt to reconnect? (y/n)\033[0m\n");
             fgets(inputBuf, 100, stdin);
             fflush(stdin);
             if (inputBuf[0] == 'y') // if yes
@@ -736,7 +736,7 @@ int main(int argc, char *argv[])
 
                 inet_ntop(valid_sock->ai_family, get_ip_addr((struct sockaddr *)valid_sock->ai_addr),
                           s, sizeof s);
-                printf("client: connecting to %s\n", s);
+                printf("\033[32mclient: connecting to %s\033[0m\n", s);
 
                 freeaddrinfo(server_info); // done with this
 
