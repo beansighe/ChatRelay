@@ -2,7 +2,11 @@
 
 int validate_string(char * text, int length)
 {
-    if(length <= 0) return -1;
+    if(length <= 0) 
+	{
+		printf("Nonsense length");
+		return -1;
+	}
     if(text == NULL) return -2;
 
     int nullencountered = 0;
@@ -14,10 +18,12 @@ int validate_string(char * text, int length)
         }
         else if(nullencountered)
         {//after the first \0 there is a non-null character
+			printf("Data after the terminator\n");
             return -3;
         }
         else if((text[i] < 0x20 || text[i] > 0x7E) && text[i] != '\n')
         {//non printable character in the string
+			printf("Illegal character in string\n");
             return -4;
         }
     }
@@ -25,6 +31,7 @@ int validate_string(char * text, int length)
     {
         if(length != 20 && length != MAXMSGLENGTH)
         {
+			printf("String not null terminated and not max length");
             return 0;
         }
     }

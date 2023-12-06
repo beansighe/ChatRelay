@@ -24,7 +24,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf);
 void updateRoomMembership(struct irc_packet_list_resp *input);
 
 // pthread_mutex_t timestamp_mutex;
-char username[20] = "";
+char username[30] = "";
 
 // pthread_mutex_t rooms_mutex;
 room_t *roomHead = NULL;
@@ -121,12 +121,9 @@ int keepalive(int sock, time_t *lastSent, time_t *lastRecvd)
     irc_packet_heartbeat_t pulse;
     pulse.header.opcode = IRC_OPCODE_HEARTBEAT;
     pulse.header.length = 0;
-    // while(1)
-    //{
     now = time(NULL);
-    printf("Checking heartbeat %lu\n", now);
+    //printf("Checking heartbeat %lu\n", now);
 
-    // pthread_mutex_lock(&timestamp_mutex);
     if (now - *lastRecvd >= 15)
     { // server is not sending heartbeats, assume connection lost
         // kill sender and receiver threads, set timeout flag and return to main.
@@ -141,9 +138,6 @@ int keepalive(int sock, time_t *lastSent, time_t *lastRecvd)
         send(sock, &pulse, sizeof(irc_packet_heartbeat_t), 0);
         *lastSent = time(NULL);
     }
-    // pthread_mutex_unlock(&timestamp_mutex);
-    // sleep(3);
-    //}
     return 0;
 }
 
@@ -160,18 +154,16 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
     //{
 
     size = recv(sock, recvBuf, capacity, 0);
-
-    // pthread_mutex_lock(&timestamp_mutex);
+    
     *lastRecvd = time(NULL);
-    // pthread_mutex_unlock(&timestamp_mutex);
+    
     struct irc_packet_generic *input = recvBuf;
+    //printf("Packet opcode: %u\n", input->header.opcode);
     switch (input->header.opcode)
     {
     case IRC_OPCODE_ERR:
         // disconnect from server and terminate
-        // pthread_cancel(sendThrd);
-        // pthread_cancel(kaThrd);
-        printf("Received invalid data, disconnecting from server...\n");
+        printf("Kicked by the server, disconnecting from server...\n");
         return -1;
         break;
     case IRC_OPCODE_HEARTBEAT:
@@ -181,9 +173,9 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
         // struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
         printf("The rooms currently available are: \n");
-        for (int i = 0; i < roomlist->header.length; ++i)
+        for (int i = 0; i < (roomlist->header.length / 20 - 1); ++i)
         {
-            printf("\t%.20s\n", roomlist->item_names[i * 20]);
+            printf("\t%.20s\n", roomlist->item_names[i]);
         }
         break;
     case IRC_OPCODE_LIST_USERS_RESP:
@@ -235,22 +227,21 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
             send(sock, &reply, sizeof(irc_packet_error_t), 0);
             return -1;
         }
-        if (strncmp(username, message->target_name, 20) == 0)
-        {
+        //if (strncmp(username, message->target_name, 20) == 0)
+        //{
             fprintf(stdout, "%.20s to %.20s: %.*s\n", message->sending_user, message->target_name, MAXMSGLENGTH, message->msg);
-        }
+        //}
         break;
     default:
         // invalid opcode
+        
+        printf("Received invalid data, disconnecting from server...\n");
         struct irc_packet_error output;
         output.error_code = IRC_ERR_ILLEGAL_OPCODE;
         output.header.opcode = IRC_OPCODE_ERR;
         output.header.length = 4;
         send(sock, &output, sizeof(struct irc_packet_error), 0);
         // disconnect from server and terminate
-        // pthread_cancel(kaThrd);
-        // pthread_cancel(sendThrd);
-        // pthread_exit(0);
         return -1;
         break;
     }
@@ -266,8 +257,10 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
     //{
     // read a line from the user
     memset(inputBuf, '\0', MAXINPUTLENGTH * sizeof(char)); // Clear out the input buffer so it can satisfy the string expectations
-    // read(stdin, inputBuf, MAXINPUTLENGTH - 1);//compatible with pthread_cancel
+    //read(stdin, inputBuf, MAXINPUTLENGTH - 1);//compatible with pthread_cancel
     fgets(inputBuf, MAXINPUTLENGTH - 1, stdin); // the version I would normally use
+    inputBuf[strlen(inputBuf) - 1] = '\0';//trim off the '\n'
+    //fflush(stdin);
     // parse the line to identify a command
     if (inputBuf[0] == '\\')
     {
@@ -277,11 +270,11 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                   // usage \r roomname msgbody
         case 'u': // send message to only one user
             // usage \u username msgbody
+            
             strtok(inputBuf, " ");
             char *rname = strtok(NULL, " ");
-            char *msgbody = strtok(NULL, " ");
-            int msglength = strlen(msgbody) + 1;
-            if (msglength <= 1)
+            char *msgbody = strtok(NULL, "\0\n");
+            if (msgbody == NULL)
             {
                 if (inputBuf[1] == 'r')
                 {
@@ -294,26 +287,30 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                     return -2;
                 }
             }
+            int msglength = strlen(msgbody) + 1;
+            //printf("Message length %d\n", msglength);
+            
+            struct irc_packet_send_msg *roommsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
+            if (inputBuf[1] == 'r')
+            {
+                roommsg->header.opcode = IRC_OPCODE_SEND_MSG;
+                //printf("Public message\n");
+            }
             else
             {
-                struct irc_packet_send_msg *roommsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
-                if (inputBuf[1] == 'r')
-                {
-                    roommsg->header.opcode = IRC_OPCODE_SEND_MSG;
-                }
-                else
-                {
-                    roommsg->header.opcode = IRC_OPCODE_SEND_PRIV_MSG;
-                }
-                roommsg->header.length = 20 + msglength;
-                memset(roommsg->target_name, '\0', 20);
-                memset(roommsg->msg, '\0', msglength);
-                strncpy(roommsg->target_name, rname, ((long int)msglength - (long int)rname) / 8 - 1);
-                strncpy(roommsg->msg, msgbody, msglength);
-                send(sock, roommsg, sizeof(struct irc_packet_send_msg) + msglength, 0);
-                free(roommsg);
-                *lastSent = time(NULL);
+                roommsg->header.opcode = IRC_OPCODE_SEND_PRIV_MSG;
+                //printf("Private message\n");
             }
+            roommsg->header.length = 20 + msglength;
+            memset(roommsg->target_name, '\0', 20);
+            memset(roommsg->msg, '\0', msglength);
+            strncpy(roommsg->target_name, rname, 20);
+            //printf("Destination room: %.20s.\n", roommsg->target_name);
+            strncpy(roommsg->msg, msgbody, msglength);
+            send(sock, roommsg, sizeof(struct irc_packet_send_msg) + msglength, 0);
+            free(roommsg);
+            *lastSent = time(NULL);
+            
             break;
         case 'j': // join (or create) a room
             // usage \j roomname
@@ -329,7 +326,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                 joinmsg.header.opcode = IRC_OPCODE_JOIN_ROOM;
                 joinmsg.header.length = 20;
                 memset(joinmsg.room_name, '\0', 20);
-                strncpy(joinmsg.room_name, inputBuf + 3, 20);
+                memcpy(joinmsg.room_name, inputBuf + 3, 20);
                 int inRoom = 0;
 
                 // pthread_mutex_lock(&rooms_mutex);
@@ -343,6 +340,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                         inRoom = 1;
                         return -2;
                     }
+                    current = current->next;
                 }
                 // add room name to list of rooms
                 if (!inRoom)
@@ -350,7 +348,7 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
                     room_t *newRoom = malloc(sizeof(room_t));
                     memset(newRoom, '\0', sizeof(room_t));
                     newRoom->next = roomHead;
-                    strncpy(newRoom->roomName, joinmsg.room_name, 20);
+                    memcpy(newRoom->roomName, joinmsg.room_name, 20);
                     newRoom->count = 0;
                     // now let the server know we want to join the room
                     send(sock, &joinmsg, sizeof(struct irc_packet_join), 0);
@@ -370,7 +368,8 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
             *lastSent = time(NULL);
             break;
         case 'e': // exit a room
-            // usage \e roomnameif(strlen(inputBuf) <= 3)
+            // usage \e roomname
+            if(strlen(inputBuf) <= 3)
             {
                 printf("usage \\e roomname\n");
                 return -2;
@@ -434,29 +433,27 @@ int sender(int sock, time_t *lastSent, char *inputBuf)
         // loop through rooms, sent message packet to each
         // would be better to have a dedicated opcode to tell the server to broadcast to all joined rooms
         // because less total network traffic that way
-        strtok(inputBuf, " ");
-        char *rname = strtok(NULL, " ");
-        char *msgbody = strtok(NULL, " ");
+        //char * rname = strtok(NULL, " ");
+        char * msgbody = inputBuf;
         int msglength = strlen(msgbody) + 1;
-        struct irc_packet_send_msg *broadcastmsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
+        struct irc_packet_send_msg * broadcastmsg = malloc(sizeof(struct irc_packet_send_msg) + msglength);
         broadcastmsg->header.opcode = IRC_OPCODE_SEND_MSG;
 
         broadcastmsg->header.length = 20 + msglength;
         memset(broadcastmsg->msg, '\0', msglength);
-        strncpy(broadcastmsg->msg, msgbody, msglength);
-        room_t *current = roomHead;
+        memcpy(broadcastmsg->msg, msgbody, msglength - 1);
+        room_t * current = roomHead;
         while (current)
         {
             memset(broadcastmsg->target_name, '\0', 20);
-            strncpy(broadcastmsg->target_name, current->roomName, msgbody - rname - 1);
+            memcpy(broadcastmsg->target_name, current->roomName, 20);
             send(sock, broadcastmsg, sizeof(struct irc_packet_send_msg) + msglength, 0);
+            current = current->next;
         }
         free(broadcastmsg);
         *lastSent = time(NULL);
-
-        // pthread_mutex_unlock(&rooms_mutex);
     }
-
+    return 0;
     // construct a packet struct according to the command and send it
 
     //}
@@ -474,9 +471,9 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
     {
         int myIndex = 0;
         int serverIndex = 0;
-        int endSRC[10];
+        int endSRC[MAXUSERS];
         int i = 0;
-        while (serverIndex < inputCount && myIndex < current->count && i < 10)
+        while (serverIndex < inputCount && myIndex < current->count && i < MAXUSERS)
         {
             int result = strncmp(current->members[myIndex], input->item_names[serverIndex], 20);
             if (result == 0) // name matches
@@ -484,6 +481,7 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
                 ++serverIndex;
                 ++myIndex;
                 endSRC[i] = serverIndex;
+                ++i;
             }
             else if (result < 0)
             {
@@ -500,7 +498,7 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
                 fprintf(stdout, "%.20s joined %.20s\n", input->item_names[serverIndex], input->identifier);
             }
         }
-        while (serverIndex < inputCount && i < 10)
+        while (serverIndex < inputCount && i < MAXUSERS)
         {
             // new user has joined
             fprintf(stdout, "%.20s joined %.20s\n", input->item_names[serverIndex], input->identifier);
@@ -509,7 +507,7 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
             ++i;
         }
 
-        for (int j = 0; j < 10; ++j) // update the membership record of the room
+        for (int j = 0; j < i; ++j) // update the membership record of the room
         {
             memset(current->members[j], '\0', 20 * sizeof(char));
             strncpy(current->members[j], input->item_names[endSRC[j]], 20);
@@ -551,8 +549,11 @@ int main(int argc, char *argv[])
     irc_packet_hello_t greeting;
     
     memset(greeting.username, '\0', 20);
+    greeting.version = 1;
     printf("Welcome to the IRC client, please enter your desired username:\n");
-    fgets(username, 20, stdin);
+    fgets(username, 30, stdin);
+    username[strnlen(username, 25) - 1] = '\0';
+    greeting.header.length = 24;
     strncpy(greeting.username, username, 20);
     greeting.header.opcode = IRC_OPCODE_HELLO;
 
@@ -627,7 +628,7 @@ int main(int argc, char *argv[])
     ///////////////////////////////////////////////////////////////////////////////
     lastRecvd = time(NULL);
     lastSent = time(NULL);
-    memset(username, '\0', 20 * sizeof(char));
+    //memset(username, '\0', 20 * sizeof(char));
 
     struct pollfd streams[2];
     int activeCount = 0;
@@ -636,8 +637,8 @@ int main(int argc, char *argv[])
     streams[0].fd = 0; // stdin
     streams[0].events = POLLIN;
 
-    streams[0].fd = sock;
-    streams[0].events = POLLIN;
+    streams[1].fd = sock;
+    streams[1].events = POLLIN;
 
     if (!inputBuf)
     {
@@ -650,20 +651,6 @@ int main(int argc, char *argv[])
         recvBuf = malloc(capacity);
     }
 
-    /*
-    pthread_mutex_init(&timestamp_mutex, NULL);
-    pthread_mutex_init(&rooms_mutex, NULL);
-
-
-    //get server IP from user
-    //open socket and connect to server
-
-    //spin off children (keepalive, receiver, sender)
-    pthread_create(&kaThrd, NULL, keepalive, NULL);
-    pthread_create(&sendThrd, NULL, sender, NULL);
-    pthread_create(&recvThrd, NULL, receiver, NULL);
-    */
-
     do
     {
         activeCount = poll(streams, 2, 2900);
@@ -672,10 +659,12 @@ int main(int argc, char *argv[])
         { // There is a line in stdin
             if (sender(sock, &lastSent, inputBuf) == -1)
             {
-                // The user typed the quit command, so disconnect from the server
+                //The user typed the quit command, so disconnect from the server
                 repeat = 0;
             }
+            streams[0].revents = 0;
         }
+        
 
         if (streams[1].revents & POLLIN)
         { // there is an incoming packet waiting
@@ -685,10 +674,12 @@ int main(int argc, char *argv[])
                 // disconnect from server
                 repeat = 0;
             }
+            streams[1].revents = 0;
         }
 
         if(repeat)//no need to check heartbeat if we are planning to quit
         {
+            //timeout = 0;
             timeout = keepalive(sock, &lastSent, &lastRecvd);
         }
         // timeout = 0;
@@ -697,7 +688,8 @@ int main(int argc, char *argv[])
 
             // server disconnected due to timeout
             fprintf(stdout, "The server is unresponsive. Do you want to attempt to reconnect? (y/n)\n");
-            fgets(inputBuf, 1, stdin);
+            fgets(inputBuf, 100, stdin);
+            fflush(stdin);
             if (inputBuf[0] == 'y') // if yes
             {
                 close(sock); // disconnect from server
