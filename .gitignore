@@ -55,3 +55,7 @@ Project.code-workspace
 settings.json
 .vscode/c_cpp_properties.json
 .vscode/c_cpp_properties.json
+client
+relayChatClient
+server
+relayChatServer
