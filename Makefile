@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -Og
-DFLAGS=-g -pthread
+DFLAGS=-g 
 OBJS=relayChatClient.o relayChatServer.o
 PROGS=relayChatClient relayChatServer
 
