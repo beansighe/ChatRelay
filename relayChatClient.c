@@ -178,12 +178,12 @@ int receiver(int sock, time_t *lastRecvd, void *recvBuf)
         // no work necessary, timestamp already updated
         break;
     case IRC_OPCODE_LIST_ROOMS_RESP:
-        struct irc_packet_list_resp *roomlist = input;
+        struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
         // struct irc_packet_list_resp *roomlist = (struct irc_packet_list_resp *)input;
         printf("The rooms currently available are: \n");
         for (int i = 0; i < roomlist->header.length; ++i)
         {
-            printf("\t%.20s\n", &(roomlist->item_names[i * 20]));
+            printf("\t%.20s\n", roomlist->item_names[i * 20]);
         }
         break;
     case IRC_OPCODE_LIST_USERS_RESP:
@@ -478,7 +478,7 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
         int i = 0;
         while (serverIndex < inputCount && myIndex < current->count && i < 10)
         {
-            int result = strncmp(current->members[myIndex], input->item_names + 20 * serverIndex, 20);
+            int result = strncmp(current->members[myIndex], input->item_names[serverIndex], 20);
             if (result == 0) // name matches
             {
                 ++serverIndex;
@@ -497,13 +497,13 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
                 endSRC[i] = serverIndex;
                 ++serverIndex;
                 ++i;
-                fprintf(stdout, "%.20s joined %.20s\n", input->item_names + 20 * serverIndex, input->identifier);
+                fprintf(stdout, "%.20s joined %.20s\n", input->item_names[serverIndex], input->identifier);
             }
         }
         while (serverIndex < inputCount && i < 10)
         {
             // new user has joined
-            fprintf(stdout, "%.20s joined %.20s\n", input->item_names + 20 * serverIndex, input->identifier);
+            fprintf(stdout, "%.20s joined %.20s\n", input->item_names[serverIndex], input->identifier);
             endSRC[i] = serverIndex;
             ++serverIndex;
             ++i;
@@ -512,7 +512,7 @@ void updateRoomMembership(struct irc_packet_list_resp *input)
         for (int j = 0; j < 10; ++j) // update the membership record of the room
         {
             memset(current->members[j], '\0', 20 * sizeof(char));
-            strncpy(current->members[j], input->item_names + 20 * endSRC[j], 20);
+            strncpy(current->members[j], input->item_names[endSRC[j]], 20);
         }
         current->count = inputCount;
     }
@@ -684,7 +684,10 @@ int main(int argc, char *argv[])
             }
         }
 
-        timeout = keepalive(sock, &lastSent, &lastRecvd);
+        if(repeat)//no need to check heartbeat if we are planning to quit
+        {
+            timeout = keepalive(sock, &lastSent, &lastRecvd);
+        }
         // timeout = 0;
         if (timeout)
         {
@@ -748,7 +751,7 @@ int main(int argc, char *argv[])
                 send(sock, &greeting, sizeof(irc_packet_hello_t), 0);
                 lastSent = time(NULL);
 
-                receiver(sock, &lastRecvd, recvBuf); // wait to receive the server hello and process it
+                //receiver(sock, &lastRecvd, recvBuf); // wait to receive the server hello and process it
                 // recv(sock, recvBuf, capacity, 0);
 
                 // Rejoin rooms
@@ -764,10 +767,6 @@ int main(int argc, char *argv[])
                     lastSent = time(NULL);
                 }
 
-                // Relaunch threads
-                // pthread_create(&kaThrd, NULL, keepalive, NULL);
-                // pthread_create(&sendThrd, NULL, sender, NULL);
-                // pthread_create(&recvThrd, NULL, receiver, NULL);
             }
             else
             {
@@ -775,10 +774,6 @@ int main(int argc, char *argv[])
                 continue;
             }
         }
-        // pthread_join(kaThrd, NULL);
-        // pthread_join(sendThrd, NULL);
-        // pthread_join(recvThrd, NULL);
-        // printf("meep\n");
         // threads terminate on 3 conditions:
         // 1: The uesr quits
         //       No need to loop
